@@ -107,8 +107,7 @@ typedef enum {
 	gpio_pin_50,
 	gpio_pin_51,
 	gpio_pin_52,
-	gpio_pin_53,
-	gpio_pin_54
+	gpio_pin_53
 }  GPIO_Pins;
 
 typedef enum {
@@ -116,7 +115,13 @@ typedef enum {
 	pupd_pull_down,
 	pupd_pull_up
 } GPIOPullUpPullDown;
+
+typedef enum {
+	event_not_detected,
+	event_detected
+} GPIOEventDetectStatus;
 	
+extern Error_Returns gpio_init();
 
 extern Error_Returns gpio_set_function_select(GPIO_Pins pin, GPIOFunction function);
 
@@ -125,3 +130,21 @@ extern void gpio_set_pullup_pulldown(GPIO_Pins pin, GPIOPullUpPullDown function)
 extern Error_Returns gpio_set_pin(GPIO_Pins pin);
 
 extern Error_Returns gpio_clear_pin(GPIO_Pins pin);
+
+extern Error_Returns gpio_get_level(GPIO_Pins pin, uint32_t *level_value);
+
+extern Error_Returns gpio_set_high_detect_pin(GPIO_Pins pin);
+
+extern Error_Returns gpio_set_low_detect_pin(GPIO_Pins pin);
+
+extern Error_Returns gpio_set_rising_detect_pin(GPIO_Pins pin);
+
+extern Error_Returns gpio_set_falling_detect_pin(GPIO_Pins pin);
+
+extern Error_Returns gpio_set_async_rising_detect_pin(GPIO_Pins pin);
+
+extern Error_Returns gpio_set_async_falling_detect_pin(GPIO_Pins pin);
+
+extern GPIOEventDetectStatus gpio_get_event_detect_status(GPIO_Pins pin);
+
+extern Error_Returns gpio_clear_event_detect_status(GPIO_Pins pin);

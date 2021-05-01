@@ -25,15 +25,25 @@ Provides a simple way to make use of interrupts on the Broadcom 2835.
 
 #pragma once
 #include "common.h"
+#include "gpio.h"
 
 typedef enum {
 	Interrupt_Claimed,
 	Interrupt_Not_Claimed
 } InterruptHandlerStatus;
 
+typedef enum {
+	Int_Basic,
+	Int_GPIO_Pin,
+	Int_GPIO_All
+} InterruptType;
+
 extern Error_Returns interrupt_handler_init(void);
 
-extern int interrupt_handler_add(InterruptHandlerStatus (*handler_ptr)(void));
+extern int interrupt_handler_add(InterruptHandlerStatus (*handler_ptr)(void), InterruptType type,
+GPIO_Pins pin);
+
+extern int interrupt_handler_basic_add(InterruptHandlerStatus (*handler_ptr)(void));
 
 extern Error_Returns interrupt_handler_remove(int handler_index);
 

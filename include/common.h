@@ -26,6 +26,7 @@ language code for CPU operations.
 
 #pragma once
 #include <stdint.h>
+#include <stdio.h>
 
 #define NULL_PTR 0
 #define SVC_INITIAL_STACK 0x8000000

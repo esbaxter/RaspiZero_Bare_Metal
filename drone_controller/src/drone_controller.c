@@ -30,13 +30,15 @@ is definitely a work in progress...
 #include "log.h"
 #include "arm_timer.h"
 
+#include "mpu6050.h"
+
 int __errno = 0;
 
 void tick_handler(void)
 {
-	double delta_meter = 0.0;
+	int32_t delta_meter;
 	altitude_get_delta(&delta_meter);
-	printf("Delta: %f \r\n", delta_meter);
+	printf("Delta: %d\n\r", (int)delta_meter/256);
 }
 
 int drone_control()

@@ -30,7 +30,11 @@ processor interrupt function.
 #include "log.h"
 
 #define MAX_INTERRUPT_HANDLER_FUNCTIONS 4
-#define INTERRUPT_BASIC 1
+#define GPIO_PINS_PER_INTERRUPT_REG 32
+#define GPIO_PIN_INTERRUPT_LOW_BANK 17
+#define GPIO_PIN_INTERRUPT_HIGH_BANK 18
+#define GPIO_PIN_INTERRUPT_ALL_EVENTS 20
+#define ARM_BASIC_INTERRUPT 0x01
 
 typedef struct {
 	uint32_t irq_basic_pending;
@@ -45,10 +49,21 @@ typedef struct {
 	uint32_t disable_basic_irqs;
 } ARM_Interrupt_Registers;
 
+typedef struct {
+	InterruptHandlerStatus (*handler_ptr)(void);
+	InterruptType type;
+	GPIO_Pins pin;
+} InterruptHandlerInfo;
+
 static volatile ARM_Interrupt_Registers *arm_interrupt_registers = (ARM_Interrupt_Registers *)ARM_INTERRUPTS_BASE;
 
-static InterruptHandlerStatus (*interrupt_handler_ptr_array[MAX_INTERRUPT_HANDLER_FUNCTIONS])(void);
+//static InterruptHandlerStatus (*interrupt_handler_ptr_array[MAX_INTERRUPT_HANDLER_FUNCTIONS])(void);
+static InterruptHandlerInfo interrupt_handler_info_array[MAX_INTERRUPT_HANDLER_FUNCTIONS];
 static int number_of_handlers = 0;
+static uint32_t number_of_gpio_low_handlers = 0;
+static uint32_t number_of_gpio_high_handlers = 0;
+static uint32_t number_of_gpio_all_handlers = 0;
+static uint32_t number_of_basic_handlers = 0;
 
 static unsigned char interrupt_handler_initialized = 0;
 
@@ -65,7 +80,8 @@ Error_Returns interrupt_handler_init()
 	{
 		for(uint32_t index = 0; index < MAX_INTERRUPT_HANDLER_FUNCTIONS; index++)
 		{
-			interrupt_handler_ptr_array[index] = NULL_PTR;
+			//interrupt_handler_ptr_array[index] = NULL_PTR;
+			interrupt_handler_info_array[index].handler_ptr = NULL_PTR;
 		}
 		number_of_handlers = 0;
 		interrupt_handler_initialized = 1;
@@ -78,9 +94,9 @@ void interrupt_handler(void)
 	uint32_t interrupt_handled = 0;
 	for(uint32_t index = 0; index < MAX_INTERRUPT_HANDLER_FUNCTIONS; index++)
 	{
-		if (interrupt_handler_ptr_array[index] != NULL_PTR)
+		if (interrupt_handler_info_array[index].handler_ptr != NULL_PTR)
 		{
-			InterruptHandlerStatus status = interrupt_handler_ptr_array[index]();
+			InterruptHandlerStatus status = interrupt_handler_info_array[index].handler_ptr();
 			if (status == Interrupt_Claimed)
 			{
 				interrupt_handled = 1;
@@ -99,17 +115,72 @@ void interrupt_handler(void)
 	and the CPU.
 */
 
-int interrupt_handler_add(InterruptHandlerStatus (*handler_ptr)(void))
+int interrupt_handler_add(InterruptHandlerStatus (*handler_ptr)(void), InterruptType type,
+GPIO_Pins pin)
 {
 	int to_return = number_of_handlers;
 	if (number_of_handlers < MAX_INTERRUPT_HANDLER_FUNCTIONS)
 	{
 		int index = 0;
-		for(; interrupt_handler_ptr_array[index] != NULL_PTR; index++);
-		interrupt_handler_ptr_array[index] = handler_ptr;
+		for(; interrupt_handler_info_array[index].handler_ptr != NULL_PTR; index++);
+		interrupt_handler_info_array[index].handler_ptr = handler_ptr;
+		interrupt_handler_info_array[index].type = type;
+		interrupt_handler_info_array[index].pin = pin;
 		number_of_handlers++;
-		arm_interrupt_registers->enable_basic_irqs = INTERRUPT_BASIC;
-		enable_cpu_interrupts();
+		switch(type)
+		{
+			case Int_Basic:
+			{
+				number_of_basic_handlers++;
+				arm_interrupt_registers->enable_basic_irqs |= ARM_BASIC_INTERRUPT;
+				break;
+			}
+			case Int_GPIO_Pin:
+			{
+				//Note:  The raspberry pi zero only has 2 GPIO banks
+				uint32_t gpio_bank = pin / GPIO_PINS_PER_INTERRUPT_REG;
+				switch(gpio_bank)
+				{
+					case 0:
+					{
+						number_of_gpio_low_handlers++;
+						arm_interrupt_registers->enable_irqs_2 |= (1 <<GPIO_PIN_INTERRUPT_LOW_BANK);
+						break;
+					}
+					case 1:
+					{
+						number_of_gpio_high_handlers++;
+						arm_interrupt_registers->enable_irqs_2 |= (1 <<GPIO_PIN_INTERRUPT_HIGH_BANK);
+						break;
+					}
+					default:
+					{
+						log_string_plus("interrupt_handler_add: invalid bank: ", gpio_bank);
+						interrupt_handler_info_array[index].handler_ptr = NULL_PTR;
+						to_return = -1;
+						break;
+					}
+				}
+				break;
+			}
+			case Int_GPIO_All:
+			{
+				number_of_gpio_all_handlers++;
+				arm_interrupt_registers->enable_irqs_2 |= (1 << GPIO_PIN_INTERRUPT_ALL_EVENTS);
+				break;
+			}
+			default:
+			{
+				log_string_plus("interrupt_handler_add: invalid parameter: ", type);
+				interrupt_handler_info_array[index].handler_ptr = NULL_PTR;
+				to_return = -1;
+				break;
+			}
+		}	
+		if (to_return > 0)
+		{
+			enable_cpu_interrupts();
+		}
 	}
 	else
 	{
@@ -127,19 +198,72 @@ Error_Returns interrupt_handler_remove(int handler_index)
 	Error_Returns to_return = RPi_Success;
 	if ((handler_index >= 0) &&
 	  (handler_index < MAX_INTERRUPT_HANDLER_FUNCTIONS) && 
-	  (interrupt_handler_ptr_array[handler_index] != NULL_PTR))
+	  (interrupt_handler_info_array[handler_index].handler_ptr != NULL_PTR))
 	  {
-		  interrupt_handler_ptr_array[handler_index] = NULL_PTR;
-		  number_of_handlers--;
-		  if (number_of_handlers == 0)
+		  interrupt_handler_info_array[handler_index].handler_ptr = NULL_PTR;	  
+		  switch(interrupt_handler_info_array[handler_index].type)
 		  {
-			  disable_cpu_interrupts();
-			  arm_interrupt_registers->disable_basic_irqs = INTERRUPT_BASIC;
-		  }
-	  }
-	 else
-	 {
-		 to_return = RPi_InvalidParam;
-	 }
-	 return to_return;
+			  case Int_Basic:
+			  {
+				  number_of_basic_handlers--;
+				  if (number_of_basic_handlers == 0)
+				  {
+					  arm_interrupt_registers->disable_basic_irqs &= ~(ARM_BASIC_INTERRUPT);
+				  }
+				  break;
+			  }
+			  case Int_GPIO_Pin:
+			  {		
+				//Note:  The raspberry pi zero only has 2 GPIO banks
+				uint32_t gpio_bank = interrupt_handler_info_array[handler_index].pin / GPIO_PINS_PER_INTERRUPT_REG;
+				switch(gpio_bank)
+				{
+					case 0:
+					{	
+						number_of_gpio_low_handlers--;
+						if (number_of_gpio_low_handlers == 0)
+						{		
+							arm_interrupt_registers->enable_irqs_2 &= ~(1 << GPIO_PIN_INTERRUPT_LOW_BANK);
+						}
+						break;
+					}
+					case 1:
+					{
+						number_of_gpio_high_handlers--;
+						if (number_of_gpio_high_handlers == 0)
+						{
+							arm_interrupt_registers->enable_irqs_2 &= ~(1 << GPIO_PIN_INTERRUPT_HIGH_BANK);
+						}
+						break;
+					}
+				}
+				break;
+			}
+			case Int_GPIO_All:
+			{
+				number_of_gpio_all_handlers--;
+				if (number_of_gpio_all_handlers == 0)
+				{
+					arm_interrupt_registers->enable_irqs_2 &= ~(1 << GPIO_PIN_INTERRUPT_ALL_EVENTS);
+				}
+				break;
+			}
+		}
+		  
+		number_of_handlers--;
+		if (number_of_handlers == 0)
+		{
+			disable_cpu_interrupts();
+		}
+	}
+	else
+	{
+		to_return = RPi_InvalidParam;
+	}
+	return to_return;
+}
+
+int interrupt_handler_basic_add(InterruptHandlerStatus (*handler_ptr)(void))
+{
+	return interrupt_handler_add(handler_ptr, Int_Basic, gpio_pin_0);
 }

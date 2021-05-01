@@ -134,7 +134,7 @@ Error_Returns uart_init()
 				log_indicate_system_error();
 			}
 			
-			to_return = interrupt_handler_add(uart_char_interrupt_handler);
+			to_return = interrupt_handler_basic_add(uart_char_interrupt_handler);
 			
 			if (to_return != RPi_Success)
 			{

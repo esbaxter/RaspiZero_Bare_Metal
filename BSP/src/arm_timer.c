@@ -130,7 +130,7 @@ Error_Returns arm_timer_enable(void (*handler_ptr)(void), uint32_t time_out)
 			to_return = RPi_InUse;
 			break;
 		}
-		interrupt_handler_index = interrupt_handler_add(arm_timer_interrupt_handler);
+		interrupt_handler_index = interrupt_handler_basic_add(arm_timer_interrupt_handler);
 		if (interrupt_handler_index == -1)
 		{
 			to_return = RPi_OperationFailed;

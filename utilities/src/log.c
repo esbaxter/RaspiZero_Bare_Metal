@@ -92,7 +92,8 @@ static void log_hex_value(uint32_t value)
 
 void log_indicate_system_ok(void)
 {
-	Error_Returns status = gpio_set_function_select(LED_GPIO_PIN, gpio_output);
+	Error_Returns status = gpio_init();
+	status = gpio_set_function_select(LED_GPIO_PIN, gpio_output);
 	if (status != RPi_Success)
 	{
 		log_indicate_system_error();
@@ -107,7 +108,8 @@ void log_indicate_system_ok(void)
 
 void log_indicate_system_error(void)
 {
-	Error_Returns status = gpio_clear_pin(LED_GPIO_PIN);
+	Error_Returns status = gpio_init();
+	status = gpio_clear_pin(LED_GPIO_PIN);
 	if (status != RPi_Success)
 	{
 		gpio_set_function_select(LED_GPIO_PIN, gpio_output);
@@ -158,7 +160,12 @@ void log_cpu_registers(Exception_Types error_source, uint32_t stack_pointer, uin
 
 Error_Returns log_init(void)
 {
-	return uart_init();
+	Error_Returns to_return = gpio_init();
+	if (to_return == RPi_Success)
+	{
+		to_return = uart_init();
+	}
+	return to_return;
 }
 
 void log_string(const char *log_string)

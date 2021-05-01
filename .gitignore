@@ -52,3 +52,5 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+drone_controller/src/drone_controller.list
+*.list

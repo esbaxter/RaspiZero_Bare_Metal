@@ -17,34 +17,16 @@ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTIO
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-File:  bme280.h
+File:  mpu6050.h
 
-Interface into the support software for the BME 280 peripheral chip.
+Interface into the support software for the InvenSense MPU 6050 motion processing chip.
 
 */
 
 #pragma once
 #include "common.h"
 
-typedef int BME280_S32_t;
-typedef unsigned int BME280_U32_t;
-typedef long long signed int BME280_S64_t;
 
-typedef enum {
-	bme280_temp_pressure_humidity,
-	bme280_altitude_mode
-} BME280_mode;
+Error_Returns mpu6050_init();
 
-Error_Returns bme280_init(BME280_mode mode);
-
-Error_Returns bme280_reset();
-
-Error_Returns bme280_print_compensated_values();
-
-Error_Returns bme280_get_current_pressure(double *pressure_ptr);
-
-Error_Returns bme280_get_current_temperature_pressure(double *temperature_ptr, double *pressure_ptr);
-
-Error_Returns bme280_get_current_temperature_pressure_int(int32_t *temperature_ptr, uint32_t *pressure_ptr);
-
-Error_Returns bme280_get_current_pressure_int(uint32_t *pressure_ptr);
+Error_Returns mpu6050_reset();

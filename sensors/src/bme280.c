@@ -52,7 +52,15 @@ Note:  The conversion algorithms were taken directly from the BME 280 spec sheet
 #define BME280_DATA_REGISTER_SIZE 0x8
 #define BME280_TRIM_PARAMETER_BYTES 24
 
-#define TIME_DELAY 100000
+#define BME280_SLEEP_MODE 0
+#define BME280_IIR_OFF_500MS_STANDBY 0x80
+#define BME280_HUMIDITY_1X	0x01
+#define BME280_PRESS_TEMP_1X  0x27
+#define BME280_IIR_16_500MS_STANDBY 0x10
+#define BME280_PRESS8X_TEMP_1X	0x33
+#define BME280_PRESS16X_TEMP_2X 0x53
+
+#define TIME_DELAY 900000
 
 static unsigned short dig_T1 = 0;
 static signed short dig_T2 = 0;
@@ -106,6 +114,57 @@ static Error_Returns bme280_read(unsigned char *buffer, unsigned int rx_bytes)
 	  spi_cpol_low, buffer, rx_bytes);
 #endif
 	return to_return;
+}
+
+static int32_t compensateTemperatureInt(int32_t adc_T)
+{
+    int32_t var1;
+    int32_t var2;
+    int32_t temperature;
+    int32_t temperature_min = -4000;
+    int32_t temperature_max = 8500;
+
+    var1 = (int32_t)((adc_T / 8) - ((int32_t)dig_T1 * 2));
+    var1 = (var1 * ((int32_t)dig_T2)) / 2048;
+    var2 = (int32_t)((adc_T / 16) - ((int32_t)dig_T1));
+    var2 = (((var2 * var2) / 4096) * ((int32_t)dig_T3)) / 16384;
+    t_fine = var1 + var2;
+    temperature = (t_fine * 5 + 128) / 256;
+
+    if (temperature < temperature_min)
+    {
+        temperature = temperature_min;
+    }
+    else if (temperature > temperature_max)
+    {
+        temperature = temperature_max;
+    }
+    return temperature;
+}
+
+static uint32_t compensatePressureInt(int32_t adc_P)
+{
+   	int64_t var1;
+	int64_t var2;
+	int64_t pressure;
+	
+	var1 = ((int64_t)t_fine) - 128000;
+	var2 = var1 * var1 * (int64_t)dig_P6;
+	var2 = var2 + ((var1 * (int64_t)dig_P5) << 17);
+	var2 = var2 + (((int64_t)dig_P4) << 35);
+	var1 = ((var1 * var1 * (int64_t)dig_P3) >> 8) + ((var1 * (int64_t)dig_P2) << 12);
+	var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)dig_P1) >> 33;
+	if (var1 < 0)
+	{
+		return 0;
+	}
+	
+	pressure = 1048576 - adc_P;
+	pressure = (((pressure << 31) - var2) * 3125) / var1;
+	var1 = (((int64_t)dig_P9) * (pressure >> 13) * (pressure >> 13)) >> 25;
+	var2 = (((int64_t)dig_P8) * pressure) >> 19;
+	pressure = ((pressure + var1 + var2) >> 8) + (((int64_t)dig_P7) << 4);
+	return (uint32_t) pressure;
 }
 
 static double compensateTemperature(int32_t adc_T)
@@ -306,22 +365,22 @@ Error_Returns bme280_init(BME280_mode mode)
 			case bme280_temp_pressure_humidity:
 			{
 				buffer[0] = BME280_CTRL_MEASURE_REGISTER;
-				buffer[1] = 0x0; //Need to set up config in sleep mode
+				buffer[1] = BME280_SLEEP_MODE; //Need to set up config in sleep mode
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				
 				buffer[0] = BME280_CTRL_CONFIG_REGISTER;  
-				buffer[1] = 0x80; //4 wire SPI, IIR filter off, 500 ms standby time
+				buffer[1] = BME280_IIR_OFF_500MS_STANDBY; //4 wire SPI, IIR filter off, 500 ms standby time
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				
 				buffer[0] = BME280_CTRL_HUMIDITY_REGISTER;
-				buffer[1] = 0x1;  //Humidity oversampling x1;
+				buffer[1] = BME280_HUMIDITY_1X;  //Humidity oversampling x1;
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				
 				buffer[0] = BME280_CTRL_MEASURE_REGISTER;
-				buffer[1] = 0x27; //Pressure and temp oversampling x1, normal mode
+				buffer[1] = BME280_PRESS_TEMP_1X; //Pressure and temp oversampling x1, normal mode
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				 
@@ -331,18 +390,24 @@ Error_Returns bme280_init(BME280_mode mode)
 			case bme280_altitude_mode:
 			{
 				buffer[0] = BME280_CTRL_MEASURE_REGISTER;
-				buffer[1] = 0x0; //Need to set up config in sleep mode
+				buffer[1] = BME280_SLEEP_MODE; //Need to set up config in sleep mode
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				
 				buffer[0] = BME280_CTRL_CONFIG_REGISTER;  
-				buffer[1] = 0x10; //4 wire SPI, IIR 16, .5 ms standby time
+				buffer[1] = BME280_IIR_16_500MS_STANDBY; //4 wire SPI, IIR 16, .5 ms standby time
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				
+				
+				buffer[0] = BME280_CTRL_HUMIDITY_REGISTER;
+				buffer[1] = BME280_HUMIDITY_1X;  //Humidity oversampling x1;
+				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
+				if (to_return != RPi_Success) break; //Don't continue just return
+
 				buffer[0] = BME280_CTRL_MEASURE_REGISTER;
-				//Pressure oversample x8, temp oversample x1, normal mode
-				buffer[1] = 0x33;
+				//Pressure oversample x16, temp oversample x2, normal mode
+				buffer[1] = BME280_PRESS16X_TEMP_2X;
 				to_return = bme280_write(buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return			
 				
@@ -376,23 +441,15 @@ Error_Returns bme280_print_compensated_values()
 	BME280_S32_t adc_P = 0;
 	BME280_S32_t adc_T = 0;
 	BME280_S32_t adc_H = 0;
-
-	double temperature = 0;
-	double pressure = 0;
-	double humidity = 0;
 		
 	do
 	{	
 		to_return = bme280_read_data(&adc_T, &adc_P, &adc_H);
 		if (to_return != RPi_Success) break;  //No need to continue, just return the error
-		temperature = compensateTemperature(adc_T);
-		printf("Temperature %f\n\r", temperature);
-		
-		pressure = compensatePressure(adc_P);
-		printf("Pressure %f\n\r", pressure);
-		
-		humidity = compensateHumidity(adc_H);
-		printf("Humidity %f\n\r", humidity);
+
+		printf("Temperature %f\n\r", compensateTemperature(adc_T));	
+		printf("Pressure %f\n\r", compensatePressure(adc_P));	
+		printf("Humidity %f\n\r", compensateHumidity(adc_H));
 	} while(0);
 	
 	return to_return;
@@ -415,6 +472,25 @@ Error_Returns bme280_get_current_temperature_pressure(double *temperature_ptr, d
 	return to_return;
 }
 
+
+Error_Returns bme280_get_current_temperature_pressure_int(int32_t *temperature_ptr, uint32_t *pressure_ptr)
+{
+	Error_Returns to_return = RPi_Success;
+	BME280_S32_t adc_P = 0;
+	BME280_S32_t adc_T = 0;
+	BME280_S32_t adc_H = 0;
+	
+	do
+	{
+		to_return = bme280_read_data(&adc_T, &adc_P, &adc_H);
+		if (to_return != RPi_Success) break;  //No need to continue, just return the error
+		*temperature_ptr = compensateTemperatureInt(adc_T);	
+		*pressure_ptr = compensatePressureInt(adc_P);		
+	}  while(0);
+	return to_return;
+}
+
+
 Error_Returns bme280_get_current_pressure(double *pressure_ptr)
 {
 	Error_Returns to_return = RPi_Success;
@@ -428,6 +504,23 @@ Error_Returns bme280_get_current_pressure(double *pressure_ptr)
 		if (to_return != RPi_Success) break;  //No need to continue, just return the error
 		compensateTemperature(adc_T);	
 		*pressure_ptr = compensatePressure(adc_P);		
+	}  while(0);
+	return to_return;
+}
+
+Error_Returns bme280_get_current_pressure_int(uint32_t *pressure_ptr)
+{
+	Error_Returns to_return = RPi_Success;
+	BME280_S32_t adc_P = 0;
+	BME280_S32_t adc_T = 0;
+	BME280_S32_t adc_H = 0;
+	
+	do
+	{
+		to_return = bme280_read_data(&adc_T, &adc_P, &adc_H);
+		if (to_return != RPi_Success) break;  //No need to continue, just return the error
+		compensateTemperatureInt(adc_T);	
+		*pressure_ptr = compensatePressureInt(adc_P);		
 	}  while(0);
 	return to_return;
 }
