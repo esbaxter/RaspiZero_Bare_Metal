@@ -78,6 +78,31 @@ static GPIOFunction pin_direction_array[GPIO_PIN_COUNT];
 static uint32_t pin_in_use_array[GPIO_ENABLE_ARRAY_SIZE];
 static uint32_t gpio_initialized = 0;
 
+static Error_Returns gpio_set_detect_register(char *error_string, volatile uint32_t *register_array, GPIO_Pins pin)
+{
+	Error_Returns to_return = RPi_Success;
+
+	if (gpio_initialized)
+	{		
+		if (pin_direction_array[pin] == gpio_input)
+		{
+			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
+			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
+			register_array[index] |= (1 << pin_index);
+		}
+		else
+		{
+			log_string_plus(error_string, pin);
+			to_return = RPi_InvalidParam;
+		}
+	}
+	else
+	{
+		to_return = RPi_NotInitialized;
+	}
+	return to_return;
+}
+
 Error_Returns gpio_init()
 {
 	Error_Returns to_return = RPi_Success;
@@ -219,152 +244,38 @@ Error_Returns gpio_get_level(GPIO_Pins pin, uint32_t *level_value)
 
 Error_Returns gpio_set_high_detect_pin(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{		
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_pin_high_detect_enable[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_set_high_detect_pin:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_set_high_detect_pin: pin not input: ", 
+		gpio_registers->gpio_pin_high_detect_enable, pin);
 }
 
 Error_Returns gpio_set_low_detect_pin(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{		
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_pin_low_detect_enable[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_set_low_detect_pin:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_set_low_detect_pin: pin not input: ", 
+		gpio_registers->gpio_pin_low_detect_enable, pin);
 }
 
 Error_Returns gpio_set_rising_detect_pin(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{	
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_rising_edge_detect_enable[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_set_rising_detect_pin:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_set_rising_detect_pin: pin not input: ", 
+		gpio_registers->gpio_rising_edge_detect_enable, pin);
 }
 
 Error_Returns gpio_set_falling_detect_pin(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{	
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_falling_edge_detect_enable[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_set_falling_detect_pin:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_set_falling_detect_pin: pin not input: ", 
+		gpio_registers->gpio_falling_edge_detect_enable, pin);
 }
 
 Error_Returns gpio_set_async_rising_detect_pin(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{		
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_async_rising_edge_detect_enable[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_set_async_rising_detect_pin:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_set_async_rising_detect_pin: pin not input: ", 
+		gpio_registers->gpio_async_rising_edge_detect_enable, pin);
 }
 
 Error_Returns gpio_set_async_falling_detect_pin(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{	
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_async_falling_edge_detect_enable[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_set_async_falling_detect_pin:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_set_async_falling_detect_pin: pin not input: ", 
+		gpio_registers->gpio_async_falling_edge_detect_enable, pin);
 }
 
 GPIOEventDetectStatus gpio_get_event_detect_status(GPIO_Pins pin)
@@ -378,25 +289,6 @@ GPIOEventDetectStatus gpio_get_event_detect_status(GPIO_Pins pin)
 
 Error_Returns gpio_clear_event_detect_status(GPIO_Pins pin)
 {
-	Error_Returns to_return = RPi_Success;
-
-	if (gpio_initialized)
-	{		
-		if (pin_direction_array[pin] == gpio_input)
-		{
-			uint32_t index = pin / ENABLE_PINS_PER_REGISTER;
-			uint32_t pin_index = pin % ENABLE_PINS_PER_REGISTER;
-			gpio_registers->gpio_event_detect_status[index] |= (1 << pin_index);
-		}
-		else
-		{
-			log_string_plus("gpio_clear_event_detect_status:  pin not configured for use: ", pin);
-			to_return = RPi_InvalidParam;
-		}
-	}
-	else
-	{
-		to_return = RPi_NotInitialized;
-	}
-	return to_return;
+	return gpio_set_detect_register("gpio_clear_event_detect_status: pin not input: ", 
+		gpio_registers->gpio_event_detect_status, pin);
 }
