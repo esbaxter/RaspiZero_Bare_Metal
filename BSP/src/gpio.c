@@ -19,8 +19,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 File:  gpio.c
 
-Implementation of access to the GPIO ports on the Broadcom 2835.  Currently only
-supports setting up input or output, setting pullup or pulldown, and setting or clearing a port.
+Implementation of access to the GPIO ports on the Broadcom 2835.
 
 Note:  GPIO pins are numbered based on their Broadcom 2835 numbers, not the pintout of
 the Raspberry Pi header.
