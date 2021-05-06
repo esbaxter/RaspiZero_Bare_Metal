@@ -41,7 +41,8 @@ typedef enum {
 	I2CS_Ack_Error,
     I2CS_Data_Loss,
     I2CS_Clock_Timeout,
-	GPIO_Pin_In_Use
+	GPIO_Pin_In_Use,
+	MPU6050_Memory_Out_Of_Bounds
 }  Error_Returns;
 
 typedef enum {
