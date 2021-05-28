@@ -2,7 +2,7 @@ include ..\..\Makefile.inc
 
 #Uncomment the following line to send messages and errors
 #to an internal buffer rather than directly to the serial port
-#LOG_INT = -DLOG_INTERNAL
+LOG_INT = -DLOG_INTERNAL
 CSRC = log.c printf-stdarg.c
 OBJS = log.o printf-stdarg.o
 

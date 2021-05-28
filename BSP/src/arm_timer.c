@@ -179,3 +179,12 @@ void spin_wait(uint32_t spin_count)
 {
 	for(uint32_t counter = 0; counter < spin_count; counter++) dummy(counter);
 }
+
+void spin_wait_seconds(uint32_t seconds)
+{
+	for(uint32_t counter = 0; counter < seconds; counter++) spin_wait(SPIN_WAIT_ONE_SECOND);
+}
+
+void spin_wait_milliseconds(uint32_t milliseconds){
+	for(uint32_t counter = 0; counter < milliseconds; counter++) spin_wait(SPIN_WAIT_ONE_MILLISECOND);
+}

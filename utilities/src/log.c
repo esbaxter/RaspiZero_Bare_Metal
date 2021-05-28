@@ -54,10 +54,45 @@ static char log_buffer[LOG_BUFFER_SIZE] = {0};
 static uint32_t buffer_rolled_over = 0;
 static uint32_t buffer_write_index = 0;
 
+static char interrupt_log_buffer[LOG_BUFFER_SIZE] = {0};
+static uint32_t interrupt_buffer_rolled_over = 0;
+static uint32_t interrupt_buffer_write_index = 0;
+
 /* This log buffer potentially leaves a partial message that will show up
 at the beginning of the log dump.  We won't worry about that since the
 partial message is the oldest in the system and hopefully we won't be
 writing to this buffer too much */
+
+void log_char_to_interrupt_buffer(uint32_t c)
+{
+	interrupt_log_buffer[interrupt_buffer_write_index++] = c & LOG_BUFFER_MASK;
+	if (!interrupt_buffer_rolled_over)
+	{
+		interrupt_buffer_rolled_over = interrupt_buffer_write_index / LOG_BUFFER_SIZE;
+	}
+	interrupt_buffer_write_index = interrupt_buffer_write_index % LOG_BUFFER_SIZE;
+}
+
+static void log_interrupt_hex_value(uint32_t value)
+{
+	log_char_to_interrupt_buffer(ASCII_ZERO);
+	log_char_to_interrupt_buffer(ASCII_CAPITAL_X);
+	for(uint32_t counter = 0; counter < 8; counter++)
+	{
+		value= value<<4 | value>>28;
+		uint32_t character = value & ASCII_VALUE_MASK;
+		if (character <= 9)
+		{
+			character += ASCII_HEX_NUMBER;
+		}
+		else
+		{
+			character += ASCII_HEX_ALPHABETIC;
+		}
+		log_char_to_interrupt_buffer(character);
+	}
+	log_char_to_interrupt_buffer(ASCII_SPACE);
+}
 
 void log_char_to_buffer(uint32_t c)
 {
@@ -194,6 +229,32 @@ void log_string_plus(const char *log_string, uint32_t value)
     LOG_CHAR(ASCII_LINE_FEED);
 }
 
+void log_interrupt_string(const char *log_string)
+{
+	while (*log_string != 0x00)
+	{
+		log_char_to_interrupt_buffer(*log_string);
+		log_string++;
+	}
+
+	log_char_to_interrupt_buffer(ASCII_CARRIAGE_RETURN);
+    log_char_to_interrupt_buffer(ASCII_LINE_FEED);
+}
+
+void log_interrupt_string_plus(const char *log_string, uint32_t value)
+{
+	while (*log_string != 0x00)
+	{
+		log_char_to_interrupt_buffer(*log_string);
+		log_string++;
+	}
+	
+	log_interrupt_hex_value(value);
+
+	log_char_to_interrupt_buffer(ASCII_CARRIAGE_RETURN);
+    log_char_to_interrupt_buffer(ASCII_LINE_FEED);
+}
+
 char log_getchar(void)
 {
 	return aux_getchar();
@@ -227,5 +288,23 @@ void log_dump_buffer(void)
 			aux_putchar(log_buffer[buffer_read_index++]);
 			buffer_read_index = buffer_read_index % LOG_BUFFER_SIZE;
 		} while (log_buffer[buffer_read_index] != 0);
+	}
+	
+	if (interrupt_buffer_rolled_over)
+	{
+		uint32_t buffer_read_index = interrupt_buffer_write_index + 1;
+		do
+		{
+			aux_putchar(interrupt_log_buffer[buffer_read_index++]);
+			buffer_read_index = buffer_read_index % LOG_BUFFER_SIZE;
+		} while (buffer_read_index != interrupt_buffer_write_index);
+	}
+	else{
+		uint32_t buffer_read_index = 0;
+		do
+		{
+			aux_putchar(interrupt_log_buffer[buffer_read_index++]);
+			buffer_read_index = buffer_read_index % LOG_BUFFER_SIZE;
+		} while (interrupt_log_buffer[buffer_read_index] != 0);
 	}
 }

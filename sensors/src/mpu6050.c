@@ -31,10 +31,38 @@ Implements support for the InvenSense MPU 6050 three axis gyro and accelerometer
 #include "gpio.h"
 #include "arm_timer.h"
 #include "interrupt_handler.h"
+#include "aux_peripherals.h"
 #include "log.h"
+
+#define INV_X_GYRO      (0x40)
+#define INV_Y_GYRO      (0x20)
+#define INV_Z_GYRO      (0x10)
+#define INV_XYZ_GYRO    (INV_X_GYRO | INV_Y_GYRO | INV_Z_GYRO)
+#define INV_XYZ_ACCEL   (0x08)
+#define DEFAULT_MPU_HZ  (20)
+#define DMP_FEATURE_TAP             (0x001)
+#define DMP_FEATURE_ANDROID_ORIENT  (0x002)
+#define DMP_FEATURE_LP_QUAT         (0x004)
+#define DMP_FEATURE_PEDOMETER       (0x008)
+#define DMP_FEATURE_6X_LP_QUAT      (0x010)
+#define DMP_FEATURE_GYRO_CAL        (0x020)
+#define DMP_FEATURE_SEND_RAW_ACCEL  (0x040)
+#define DMP_FEATURE_SEND_RAW_GYRO   (0x080)
+#define DMP_FEATURE_SEND_CAL_GYRO   (0x100)
+#define INV_XYZ_COMPASS (0x01)
+#define DMP_FEATURE_SEND_ANY_GYRO   (DMP_FEATURE_SEND_RAW_GYRO | \
+                                     DMP_FEATURE_SEND_CAL_GYRO)
+
+#define QUAT_BUFFER_SIZE 5
 
 #define MPU_I2C_SLAVE_ADDRESS 0x68
 #define MPU6050_WHO_AM_I_VALUE 0x68
+#define MPU6050_RESET_DEVICE 7
+#define MPU6050_INTERRUPT_LATCH 5
+#define MPU6050_INTERRUPT_FIFO_OVERFLOW 4
+#define MPU6050_INTERRUPT_FIFO_DATA 0
+#define MPU6050_DMP_INTERRUPT_ENABLE 2  //Undocumented in the register definitions
+#define MPU6050_AWAKE 0x00
 
 #define MPU_RATE_DIVIDER_REG 0x19
 #define MPU_LPF_CONFIG_REG 0x1A
@@ -49,7 +77,7 @@ Implements support for the InvenSense MPU 6050 three axis gyro and accelerometer
 #define MPU_FIFO_READ_WRITE_REG 0x74
 #define MPU_RAW_GYRO_REG 0x43
 #define MPU_RAW_ACCEL_REG 0x3B
-#define MPU_TEMPERATURE_REG 0x41
+#define MPU_TEMPERATURE_HIGH_REG 0x41
 #define MPU_INTERRUPT_ENABLE_REG 0x38
 #define DMP_INTERRUPT_STATUS_REG 0x39
 #define MPU_INTERRUPT_STATUS_REG 0x3A
@@ -63,17 +91,477 @@ Implements support for the InvenSense MPU 6050 three axis gyro and accelerometer
 #define DMP_MEM_READ_WRITE_REG 0x6F
 #define DMP_PROGRAM_START_REG 0x70
 #define MPU6050_WHO_AM_I_REG 0x75
-	
+const unsigned char dmp_read_write_reg = 0x6F;
 #define TIME_DELAY 2000000
 #define MPU_INTERRUPT_GPIO_PIN gpio_pin_4
 
-#define DMP_CODE_SIZE           3062
+//#define DMP_CODE_SIZE           3062
 #define DMP_START_ADDRESS 0x0400
 #define DMP_SAMPLE_RATE     200
 #define DMP_BANK_SIZE 256
+
     /* Must divide evenly into st.hw->bank_size to avoid bank crossings. */
 #define DMP_LOAD_CHUNK  16
 #define DMP_WRITE_BUFFER_SIZE 3
+
+#define GYRO_SF             (46850825LL * 200 / DMP_SAMPLE_RATE)
+
+#define BIT_I2C_MST_VDDIO   (0x80)
+#define BIT_FIFO_EN         (0x40)
+#define BIT_DMP_EN          (0x80)
+#define BIT_FIFO_RST        (0x04)
+#define BIT_DMP_RST         (0x08)
+#define BIT_FIFO_OVERFLOW   (0x10)
+#define BIT_DATA_RDY_EN     (0x01)
+#define BIT_DMP_INT_EN      (0x02)
+#define BIT_MOT_INT_EN      (0x40)
+#define BITS_FSR            (0x18)
+#define BITS_LPF            (0x07)
+#define BITS_HPF            (0x07)
+#define BITS_CLK            (0x07)
+#define BIT_FIFO_SIZE_1024  (0x40)
+#define BIT_FIFO_SIZE_2048  (0x80)
+#define BIT_FIFO_SIZE_4096  (0xC0)
+#define BIT_RESET           (0x80)
+#define BIT_SLEEP           (0x40)
+#define BIT_S0_DELAY_EN     (0x01)
+#define BIT_S2_DELAY_EN     (0x04)
+#define BITS_SLAVE_LENGTH   (0x0F)
+#define BIT_SLAVE_BYTE_SW   (0x40)
+#define BIT_SLAVE_GROUP     (0x10)
+#define BIT_SLAVE_EN        (0x80)
+#define BIT_I2C_READ        (0x80)
+#define BITS_I2C_MASTER_DLY (0x1F)
+#define BIT_AUX_IF_EN       (0x20)
+#define BIT_ACTL            (0x80)
+#define BIT_LATCH_EN        (0x20)
+#define BIT_ANY_RD_CLR      (0x10)
+#define BIT_BYPASS_EN       (0x02)
+#define BITS_WOM_EN         (0xC0)
+#define BIT_LPA_CYCLE       (0x20)
+#define BIT_STBY_XA         (0x20)
+#define BIT_STBY_YA         (0x10)
+#define BIT_STBY_ZA         (0x08)
+#define BIT_STBY_XG         (0x04)
+#define BIT_STBY_YG         (0x02)
+#define BIT_STBY_ZG         (0x01)
+#define BIT_STBY_XYZA       (BIT_STBY_XA | BIT_STBY_YA | BIT_STBY_ZA)
+#define BIT_STBY_XYZG       (BIT_STBY_XG | BIT_STBY_YG | BIT_STBY_ZG)
+#define BIT_ACCL_FC_B       (0x08)
+
+/* These defines are copied from dmpDefaultMPU6050.c in the general MPL
+ * releases. These defines may change for each DMP image, so be sure to modify
+ * these values when switching to a new image.
+ */
+#define CFG_LP_QUAT             (2712)
+#define END_ORIENT_TEMP         (1866)
+#define CFG_27                  (2742)
+#define CFG_20                  (2224)
+#define CFG_23                  (2745)
+#define CFG_FIFO_ON_EVENT       (2690)
+#define END_PREDICTION_UPDATE   (1761)
+#define CGNOTICE_INTR           (2620)
+#define X_GRT_Y_TMP             (1358)
+#define CFG_DR_INT              (1029)
+#define CFG_AUTH                (1035)
+#define UPDATE_PROP_ROT         (1835)
+#define END_COMPARE_Y_X_TMP2    (1455)
+#define SKIP_X_GRT_Y_TMP        (1359)
+#define SKIP_END_COMPARE        (1435)
+#define FCFG_3                  (1088)
+#define FCFG_2                  (1066)
+#define FCFG_1                  (1062)
+#define END_COMPARE_Y_X_TMP3    (1434)
+#define FCFG_7                  (1073)
+#define FCFG_6                  (1106)
+#define FLAT_STATE_END          (1713)
+#define SWING_END_4             (1616)
+#define SWING_END_2             (1565)
+#define SWING_END_3             (1587)
+#define SWING_END_1             (1550)
+#define CFG_8                   (2718)
+#define CFG_15                  (2727)
+#define CFG_16                  (2746)
+#define CFG_EXT_GYRO_BIAS       (1189)
+#define END_COMPARE_Y_X_TMP     (1407)
+#define DO_NOT_UPDATE_PROP_ROT  (1839)
+#define CFG_7                   (1205)
+#define FLAT_STATE_END_TEMP     (1683)
+#define END_COMPARE_Y_X         (1484)
+#define SKIP_SWING_END_1        (1551)
+#define SKIP_SWING_END_3        (1588)
+#define SKIP_SWING_END_2        (1566)
+#define TILTG75_START           (1672)
+#define CFG_6                   (2753)
+#define TILTL75_END             (1669)
+#define END_ORIENT              (1884)
+#define CFG_FLICK_IN            (2573)
+#define TILTL75_START           (1643)
+#define CFG_MOTION_BIAS         (1208)
+#define X_GRT_Y                 (1408)
+#define TEMPLABEL               (2324)
+#define CFG_ANDROID_ORIENT_INT  (1853)
+#define CFG_GYRO_RAW_DATA       (2722)
+#define X_GRT_Y_TMP2            (1379)
+
+#define D_0_22                  (22+512)
+#define D_0_24                  (24+512)
+
+#define D_0_36                  (36)
+#define D_0_52                  (52)
+#define D_0_96                  (96)
+#define D_0_104                 (104)
+#define D_0_108                 (108)
+#define D_0_163                 (163)
+#define D_0_188                 (188)
+#define D_0_192                 (192)
+#define D_0_224                 (224)
+#define D_0_228                 (228)
+#define D_0_232                 (232)
+#define D_0_236                 (236)
+
+#define D_1_2                   (256 + 2)
+#define D_1_4                   (256 + 4)
+#define D_1_8                   (256 + 8)
+#define D_1_10                  (256 + 10)
+#define D_1_24                  (256 + 24)
+#define D_1_28                  (256 + 28)
+#define D_1_36                  (256 + 36)
+#define D_1_40                  (256 + 40)
+#define D_1_44                  (256 + 44)
+#define D_1_72                  (256 + 72)
+#define D_1_74                  (256 + 74)
+#define D_1_79                  (256 + 79)
+#define D_1_88                  (256 + 88)
+#define D_1_90                  (256 + 90)
+#define D_1_92                  (256 + 92)
+#define D_1_96                  (256 + 96)
+#define D_1_98                  (256 + 98)
+#define D_1_106                 (256 + 106)
+#define D_1_108                 (256 + 108)
+#define D_1_112                 (256 + 112)
+#define D_1_128                 (256 + 144)
+#define D_1_152                 (256 + 12)
+#define D_1_160                 (256 + 160)
+#define D_1_176                 (256 + 176)
+#define D_1_178                 (256 + 178)
+#define D_1_218                 (256 + 218)
+#define D_1_232                 (256 + 232)
+#define D_1_236                 (256 + 236)
+#define D_1_240                 (256 + 240)
+#define D_1_244                 (256 + 244)
+#define D_1_250                 (256 + 250)
+#define D_1_252                 (256 + 252)
+#define D_2_12                  (512 + 12)
+#define D_2_96                  (512 + 96)
+#define D_2_108                 (512 + 108)
+#define D_2_208                 (512 + 208)
+#define D_2_224                 (512 + 224)
+#define D_2_236                 (512 + 236)
+#define D_2_244                 (512 + 244)
+#define D_2_248                 (512 + 248)
+#define D_2_252                 (512 + 252)
+
+#define CPASS_BIAS_X            (35 * 16 + 4)
+#define CPASS_BIAS_Y            (35 * 16 + 8)
+#define CPASS_BIAS_Z            (35 * 16 + 12)
+#define CPASS_MTX_00            (36 * 16)
+#define CPASS_MTX_01            (36 * 16 + 4)
+#define CPASS_MTX_02            (36 * 16 + 8)
+#define CPASS_MTX_10            (36 * 16 + 12)
+#define CPASS_MTX_11            (37 * 16)
+#define CPASS_MTX_12            (37 * 16 + 4)
+#define CPASS_MTX_20            (37 * 16 + 8)
+#define CPASS_MTX_21            (37 * 16 + 12)
+#define CPASS_MTX_22            (43 * 16 + 12)
+#define D_EXT_GYRO_BIAS_X       (61 * 16)
+#define D_EXT_GYRO_BIAS_Y       (61 * 16) + 4
+#define D_EXT_GYRO_BIAS_Z       (61 * 16) + 8
+#define D_ACT0                  (40 * 16)
+#define D_ACSX                  (40 * 16 + 4)
+#define D_ACSY                  (40 * 16 + 8)
+#define D_ACSZ                  (40 * 16 + 12)
+
+#define FLICK_MSG               (45 * 16 + 4)
+#define FLICK_COUNTER           (45 * 16 + 8)
+#define FLICK_LOWER             (45 * 16 + 12)
+#define FLICK_UPPER             (46 * 16 + 12)
+
+#define D_AUTH_OUT              (992)
+#define D_AUTH_IN               (996)
+#define D_AUTH_A                (1000)
+#define D_AUTH_B                (1004)
+
+#define D_PEDSTD_BP_B           (768 + 0x1C)
+#define D_PEDSTD_HP_A           (768 + 0x78)
+#define D_PEDSTD_HP_B           (768 + 0x7C)
+#define D_PEDSTD_BP_A4          (768 + 0x40)
+#define D_PEDSTD_BP_A3          (768 + 0x44)
+#define D_PEDSTD_BP_A2          (768 + 0x48)
+#define D_PEDSTD_BP_A1          (768 + 0x4C)
+#define D_PEDSTD_INT_THRSH      (768 + 0x68)
+#define D_PEDSTD_CLIP           (768 + 0x6C)
+#define D_PEDSTD_SB             (768 + 0x28)
+#define D_PEDSTD_SB_TIME        (768 + 0x2C)
+#define D_PEDSTD_PEAKTHRSH      (768 + 0x98)
+#define D_PEDSTD_TIML           (768 + 0x2A)
+#define D_PEDSTD_TIMH           (768 + 0x2E)
+#define D_PEDSTD_PEAK           (768 + 0X94)
+#define D_PEDSTD_STEPCTR        (768 + 0x60)
+#define D_PEDSTD_TIMECTR        (964)
+#define D_PEDSTD_DECI           (768 + 0xA0)
+
+#define D_HOST_NO_MOT           (976)
+#define D_ACCEL_BIAS            (660)
+
+#define D_ORIENT_GAP            (76)
+
+#define D_TILT0_H               (48)
+#define D_TILT0_L               (50)
+#define D_TILT1_H               (52)
+#define D_TILT1_L               (54)
+#define D_TILT2_H               (56)
+#define D_TILT2_L               (58)
+#define D_TILT3_H               (60)
+#define D_TILT3_L               (62)
+
+#define DMP_CODE_SIZE           (3062)
+#define DINA0A 0x0a
+#define DINA22 0x22
+#define DINA42 0x42
+#define DINA5A 0x5a
+
+#define DINA06 0x06
+#define DINA0E 0x0e
+#define DINA16 0x16
+#define DINA1E 0x1e
+#define DINA26 0x26
+#define DINA2E 0x2e
+#define DINA36 0x36
+#define DINA3E 0x3e
+#define DINA46 0x46
+#define DINA4E 0x4e
+#define DINA56 0x56
+#define DINA5E 0x5e
+#define DINA66 0x66
+#define DINA6E 0x6e
+#define DINA76 0x76
+#define DINA7E 0x7e
+
+#define DINA00 0x00
+#define DINA08 0x08
+#define DINA10 0x10
+#define DINA18 0x18
+#define DINA20 0x20
+#define DINA28 0x28
+#define DINA30 0x30
+#define DINA38 0x38
+#define DINA40 0x40
+#define DINA48 0x48
+#define DINA50 0x50
+#define DINA58 0x58
+#define DINA60 0x60
+#define DINA68 0x68
+#define DINA70 0x70
+#define DINA78 0x78
+
+#define DINA04 0x04
+#define DINA0C 0x0c
+#define DINA14 0x14
+#define DINA1C 0x1C
+#define DINA24 0x24
+#define DINA2C 0x2c
+#define DINA34 0x34
+#define DINA3C 0x3c
+#define DINA44 0x44
+#define DINA4C 0x4c
+#define DINA54 0x54
+#define DINA5C 0x5c
+#define DINA64 0x64
+#define DINA6C 0x6c
+#define DINA74 0x74
+#define DINA7C 0x7c
+
+#define DINA01 0x01
+#define DINA09 0x09
+#define DINA11 0x11
+#define DINA19 0x19
+#define DINA21 0x21
+#define DINA29 0x29
+#define DINA31 0x31
+#define DINA39 0x39
+#define DINA41 0x41
+#define DINA49 0x49
+#define DINA51 0x51
+#define DINA59 0x59
+#define DINA61 0x61
+#define DINA69 0x69
+#define DINA71 0x71
+#define DINA79 0x79
+
+#define DINA25 0x25
+#define DINA2D 0x2d
+#define DINA35 0x35
+#define DINA3D 0x3d
+#define DINA4D 0x4d
+#define DINA55 0x55
+#define DINA5D 0x5D
+#define DINA6D 0x6d
+#define DINA75 0x75
+#define DINA7D 0x7d
+
+#define DINADC 0xdc
+#define DINAF2 0xf2
+#define DINAAB 0xab
+#define DINAAA 0xaa
+#define DINAF1 0xf1
+#define DINADF 0xdf
+#define DINADA 0xda
+#define DINAB1 0xb1
+#define DINAB9 0xb9
+#define DINAF3 0xf3
+#define DINA8B 0x8b
+#define DINAA3 0xa3
+#define DINA91 0x91
+#define DINAB6 0xb6
+#define DINAB4 0xb4
+
+
+#define DINC00 0x00
+#define DINC01 0x01
+#define DINC02 0x02
+#define DINC03 0x03
+#define DINC08 0x08
+#define DINC09 0x09
+#define DINC0A 0x0a
+#define DINC0B 0x0b
+#define DINC10 0x10
+#define DINC11 0x11
+#define DINC12 0x12
+#define DINC13 0x13
+#define DINC18 0x18
+#define DINC19 0x19
+#define DINC1A 0x1a
+#define DINC1B 0x1b
+
+#define DINC20 0x20
+#define DINC21 0x21
+#define DINC22 0x22
+#define DINC23 0x23
+#define DINC28 0x28
+#define DINC29 0x29
+#define DINC2A 0x2a
+#define DINC2B 0x2b
+#define DINC30 0x30
+#define DINC31 0x31
+#define DINC32 0x32
+#define DINC33 0x33
+#define DINC38 0x38
+#define DINC39 0x39
+#define DINC3A 0x3a
+#define DINC3B 0x3b
+
+#define DINC40 0x40
+#define DINC41 0x41
+#define DINC42 0x42
+#define DINC43 0x43
+#define DINC48 0x48
+#define DINC49 0x49
+#define DINC4A 0x4a
+#define DINC4B 0x4b
+#define DINC50 0x50
+#define DINC51 0x51
+#define DINC52 0x52
+#define DINC53 0x53
+#define DINC58 0x58
+#define DINC59 0x59
+#define DINC5A 0x5a
+#define DINC5B 0x5b
+
+#define DINC60 0x60
+#define DINC61 0x61
+#define DINC62 0x62
+#define DINC63 0x63
+#define DINC68 0x68
+#define DINC69 0x69
+#define DINC6A 0x6a
+#define DINC6B 0x6b
+#define DINC70 0x70
+#define DINC71 0x71
+#define DINC72 0x72
+#define DINC73 0x73
+#define DINC78 0x78
+#define DINC79 0x79
+#define DINC7A 0x7a
+#define DINC7B 0x7b
+
+#define DIND40 0x40
+
+
+#define DINA80 0x80
+#define DINA90 0x90
+#define DINAA0 0xa0
+#define DINAC9 0xc9
+#define DINACB 0xcb
+#define DINACD 0xcd
+#define DINACF 0xcf
+#define DINAC8 0xc8
+#define DINACA 0xca
+#define DINACC 0xcc
+#define DINACE 0xce
+#define DINAD8 0xd8
+#define DINADD 0xdd
+#define DINAF8 0xf0
+#define DINAFE 0xfe
+
+#define DINBF8 0xf8
+#define DINAC0 0xb0
+#define DINAC1 0xb1
+#define DINAC2 0xb4
+#define DINAC3 0xb5
+#define DINAC4 0xb8
+#define DINAC5 0xb9
+#define DINBC0 0xc0
+#define DINBC2 0xc2
+#define DINBC4 0xc4
+#define DINBC6 0xc6
+
+/* Filter configurations. */
+enum lpf_e {
+    INV_FILTER_256HZ_NOLPF2 = 0,
+    INV_FILTER_188HZ,
+    INV_FILTER_98HZ,
+    INV_FILTER_42HZ,
+    INV_FILTER_20HZ,
+    INV_FILTER_10HZ,
+    INV_FILTER_5HZ,
+    INV_FILTER_2100HZ_NOLPF,
+    NUM_FILTER
+};
+
+/* Full scale ranges. */
+enum gyro_fsr_e {
+    INV_FSR_250DPS = 0,
+    INV_FSR_500DPS,
+    INV_FSR_1000DPS,
+    INV_FSR_2000DPS,
+    NUM_GYRO_FSR
+};
+
+/* Full scale ranges. */
+enum accel_fsr_e {
+    INV_FSR_2G = 0,
+    INV_FSR_4G,
+    INV_FSR_8G,
+    INV_FSR_16G,
+    NUM_ACCEL_FSR
+};
+
+enum clock_sel_e {
+    INV_CLK_INTERNAL = 0,
+    INV_CLK_PLL,
+    NUM_CLK
+};
 
 static const unsigned char dmp_memory[DMP_CODE_SIZE] = {
     /* bank # 0 */
@@ -286,19 +774,17 @@ static const unsigned char dmp_memory[DMP_CODE_SIZE] = {
 
 static int32_t interrupt_handler_index;
 
+static volatile int16_t packet_write_index = 0;
+
+static volatile int16_t packet_read_index = 0;
+
+static volatile unsigned char quat_buffer_overflow = 0;
+
+static MPU6050_Accel_Gyro_Values quat_values[QUAT_BUFFER_SIZE];
+
 static uint32_t mpu6050_initialized = 0;
 
-InterruptHandlerStatus mpu6050_interrupt_handler(void)
-{
-	InterruptHandlerStatus to_return = Interrupt_Not_Claimed;
-	if (gpio_get_event_detect_status(MPU_INTERRUPT_GPIO_PIN) == event_detected)
-	{
-		//Clear MPU interrupt, then clear event status
-		gpio_clear_event_detect_status(MPU_INTERRUPT_GPIO_PIN);
-		to_return = Interrupt_Claimed;
-	}
-	return to_return;
-}
+unsigned char packet_length;
 
 static Error_Returns mpu6050_write(unsigned char *buffer, unsigned int tx_bytes)
 {
@@ -383,7 +869,8 @@ static Error_Returns mpu6050_read_mem(unsigned short mem_addr, unsigned short le
 			break;
 		}
 		
-		tmp[0] = DMP_MEM_READ_WRITE_REG;
+		//tmp[0] = DMP_MEM_READ_WRITE_REG;
+		tmp[0] = dmp_read_write_reg;
 		to_return = i2c_write(MPU_I2C_SLAVE_ADDRESS, tmp, 1);
 		if (to_return != RPi_Success)
 		{
@@ -420,7 +907,7 @@ static unsigned short mpu6050_mem_cmp(const unsigned char *original_ptr, unsigne
 	return to_return;
 }
 
-static Error_Returns mpu_load_firmware()
+static Error_Returns dmp_load_firmware()
 {
 	Error_Returns to_return = RPi_Success;
     unsigned short ii;
@@ -468,6 +955,673 @@ static Error_Returns mpu_load_firmware()
     return to_return;
 }
 
+Error_Returns dmp_enable_gyro_cal(unsigned char enable)
+{
+	Error_Returns to_return = RPi_Success;
+    if (enable) {
+        unsigned char regs[9] = {0xb8, 0xaa, 0xb3, 0x8d, 0xb4, 0x98, 0x0d, 0x35, 0x5d};
+        to_return =  mpu6050_write_mem(CFG_MOTION_BIAS, 9, regs);
+    } else {
+        unsigned char regs[9] = {0xb8, 0xaa, 0xaa, 0xaa, 0xb0, 0x88, 0xc3, 0xc5, 0xc7};
+        to_return =  mpu6050_write_mem(CFG_MOTION_BIAS, 9, regs);
+    }
+	return to_return;
+}
+
+static Error_Returns mpu_reset_fifo(unsigned char dmp_on)
+{
+	Error_Returns to_return = RPi_Success;
+    unsigned char buffer[2];
+
+	do
+	{
+		buffer[0] = MPU_INTERRUPT_ENABLE_REG;
+		buffer[1] = 0;
+		to_return = mpu6050_write(buffer, 2);
+		if (to_return != RPi_Success)
+		{
+			log_string_plus("mpu_reset_fifo:  Error disabling interrupts ", to_return);
+			break;
+		}
+		
+		buffer[0] = MPU_FIFO_ENABLE_REG;	
+		to_return = mpu6050_write(buffer, 2);
+		if (to_return != RPi_Success)
+		{
+			log_string_plus("mpu_reset_fifo:  Error disabling FIFO ", to_return);
+			break;
+		}
+		
+		buffer[0] = MPU_USER_CONTROL_REG;
+		to_return = mpu6050_write(buffer, 2);
+		if (to_return != RPi_Success)
+		{
+			log_string_plus("mpu_reset_fifo:  Error disabling FIFO (user_ctrl) ", to_return);
+			break;
+		}
+
+		if (dmp_on) {
+			buffer[1] = BIT_FIFO_RST | BIT_DMP_RST;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  Error resetting DMP ", to_return);
+				break;
+			}
+			spin_wait_milliseconds(500);
+			buffer[1] = BIT_DMP_EN | BIT_FIFO_EN;
+
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  Error enabling DMP ", to_return);
+				break;
+			}
+			
+			buffer[0] = MPU_INTERRUPT_ENABLE_REG;
+			buffer[1] = 0x02; //0x13; //BIT_DMP_INT_EN;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  Error enabling interrupt ", to_return);
+				break;
+			}
+			buffer[0] = MPU_FIFO_ENABLE_REG;
+			buffer[1] = 0;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  FIFO enable ", to_return);
+				break;
+			}
+		}
+		else
+		{
+			buffer[1] = BIT_FIFO_RST;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  FIFO enable ", to_return);
+				break;
+			}
+			buffer[1] = BIT_FIFO_EN;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  FIFO enable ", to_return);
+				break;
+			}
+			spin_wait_milliseconds(50);
+			buffer[0] = MPU_INTERRUPT_ENABLE_REG;
+			buffer[1] = BIT_DATA_RDY_EN;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  FIFO enable ", to_return);
+				break;
+			}
+			buffer[0] = MPU_FIFO_ENABLE_REG;
+			to_return = mpu6050_write(buffer, 2);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("mpu_reset_fifo:  FIFO enable ", to_return);
+				break;
+			}
+		}
+
+	} while(0);
+    return to_return;
+}
+
+static Error_Returns dmp_enable_6x_lp_quat(unsigned char enable)
+{
+    Error_Returns to_return = RPi_Success;
+	unsigned char regs[4];
+	
+    do
+	{
+		if (enable) {
+			regs[0] = DINA20;
+			regs[1] = DINA28;
+			regs[2] = DINA30;
+			regs[3] = DINA38;
+		} 
+		else
+		{
+			for(uint32_t index = 0; index < 4; index++)
+				regs[index] = 0xA3;
+		}
+
+		to_return = mpu6050_write_mem(CFG_8, 4, regs);
+		if (to_return != RPi_Success)
+		{
+			log_string_plus("dmp_enable_6x_lp_quat: Failed to write dmp memory",
+				to_return);
+			break;
+		}
+
+	} while(0);
+	return to_return;
+}
+
+/*static*/ Error_Returns mpu_set_gyro_fsr(unsigned short fsr)
+{
+    Error_Returns to_return = RPi_Success;
+	unsigned char buffer[2];
+	buffer[0] = MPU_GYRO_CONFIG_REG;
+
+    switch (fsr) {
+    case 250:
+        buffer[1] = INV_FSR_250DPS << 3;
+        break;
+    case 500:
+        buffer[1] = INV_FSR_500DPS << 3;
+        break;
+    case 1000:
+        buffer[1] = INV_FSR_1000DPS << 3;
+        break;
+    case 2000:
+        buffer[1] = INV_FSR_2000DPS << 3;
+        break;
+    default:
+		log_string_plus("mpu_set_gyro_fsr: Invalid parameter ", (uint32_t) fsr);
+        to_return = RPi_InvalidParam;
+    }
+   
+    if (to_return == RPi_Success)
+	{
+		to_return = mpu6050_write(buffer, 2);
+	}
+    return to_return;
+}
+
+/*static*/ Error_Returns mpu_set_accel_fsr(unsigned char fsr)
+{
+    Error_Returns to_return = RPi_Success;
+	unsigned char buffer[2];
+	buffer[0] = MPU_ACCEL_CONFIG_REG;
+
+    switch (fsr) {
+    case 2:
+        buffer[1] = INV_FSR_2G << 3;
+        break;
+    case 4:
+        buffer[1] = INV_FSR_4G << 3;
+        break;
+    case 8:
+        buffer[1] = INV_FSR_8G << 3;
+        break;
+    case 16:
+        buffer[1] = INV_FSR_16G << 3;
+        break;
+    default:
+		log_string_plus("mpu_set_gyro_fsr: Invalid parameter ", (uint32_t) fsr);
+        to_return = RPi_InvalidParam;
+    }
+   
+    if (to_return == RPi_Success)
+	{
+		to_return = mpu6050_write(buffer, 2);
+	}
+    return to_return;
+}
+
+/* Set the DMP to interrupt when a FIFO period has elapsed.
+   Note:  The DMP can also interrupt on a gesture if we need it to.
+*/
+
+/*static*/ Error_Returns dmp_set_interrupt_mode()
+{
+    const unsigned char regs_continuous[11] =
+        {0xd8, 0xb1, 0xb9, 0xf3, 0x8b, 0xa3, 0x91, 0xb6, 0x09, 0xb4, 0xd9};
+	return mpu6050_write_mem(CFG_FIFO_ON_EVENT, 11,
+		(unsigned char*)regs_continuous);
+}
+
+/*static*/ Error_Returns mpu_set_lpf(unsigned short lpf)
+{
+	unsigned char buffer[2];
+	buffer[0] = MPU_LPF_CONFIG_REG;
+
+    if (lpf >= 188)
+        buffer[1] = INV_FILTER_188HZ;
+    else if (lpf >= 98)
+        buffer[1] = INV_FILTER_98HZ;
+    else if (lpf >= 42)
+        buffer[1] = INV_FILTER_42HZ;
+    else if (lpf >= 20)
+        buffer[1] = INV_FILTER_20HZ;
+    else if (lpf >= 10)
+        buffer[1] = INV_FILTER_10HZ;
+    else
+        buffer[1] = INV_FILTER_5HZ;
+
+    return mpu6050_write(buffer, 2);
+}
+
+int dmp_set_orientation(unsigned short orient)
+{
+    unsigned char gyro_regs[3], accel_regs[3];
+    const unsigned char gyro_axes[3] = {DINA4C, DINACD, DINA6C};
+    const unsigned char accel_axes[3] = {DINA0C, DINAC9, DINA2C};
+    const unsigned char gyro_sign[3] = {DINA36, DINA56, DINA76};
+    const unsigned char accel_sign[3] = {DINA26, DINA46, DINA66};
+
+    gyro_regs[0] = gyro_axes[orient & 3];
+    gyro_regs[1] = gyro_axes[(orient >> 3) & 3];
+    gyro_regs[2] = gyro_axes[(orient >> 6) & 3];
+    accel_regs[0] = accel_axes[orient & 3];
+    accel_regs[1] = accel_axes[(orient >> 3) & 3];
+    accel_regs[2] = accel_axes[(orient >> 6) & 3];
+
+    /* Chip-to-body, axes only. */
+    if (mpu6050_write_mem(FCFG_1, 3, gyro_regs))
+        return -1;
+    if (mpu6050_write_mem(FCFG_2, 3, accel_regs))
+        return -1;
+
+    for(uint32_t index = 0; index < 3; index++)
+	{
+		gyro_regs[index] = gyro_sign[index];
+		accel_regs[index] = accel_sign[index];
+	}
+    if (orient & 4) {
+        gyro_regs[0] |= 1;
+        accel_regs[0] |= 1;
+    }
+    if (orient & 0x20) {
+        gyro_regs[1] |= 1;
+        accel_regs[1] |= 1;
+    }
+    if (orient & 0x100) {
+        gyro_regs[2] |= 1;
+        accel_regs[2] |= 1;
+    }
+
+    /* Chip-to-body, sign only. */
+    if (mpu6050_write_mem(FCFG_3, 3, gyro_regs))
+        return -1;
+    if (mpu6050_write_mem(FCFG_7, 3, accel_regs))
+        return -1;
+    //dmp.orient = orient;
+    return 0;
+}
+
+/*static */Error_Returns dmp_enable_features()
+{
+    unsigned char tmp[10];
+
+    /* TODO: All of these settings can probably be integrated into the default
+     * DMP image.
+     */
+    /* Set integration scale factor. */
+    tmp[0] = (unsigned char)((GYRO_SF >> 24) & 0xFF);
+    tmp[1] = (unsigned char)((GYRO_SF >> 16) & 0xFF);
+    tmp[2] = (unsigned char)((GYRO_SF >> 8) & 0xFF);
+    tmp[3] = (unsigned char)(GYRO_SF & 0xFF);
+    mpu6050_write_mem(D_0_104, 4, tmp);
+
+    /* Send no sensor data to the FIFO. */
+    tmp[0] = 0xA3;  //Send raw accel
+	tmp[1] = 0xC0;
+	tmp[2] = 0xC8;
+	tmp[3] = 0xC2;
+	tmp[4] = 0xC4;  //Send gyro
+	tmp[5] = 0xCC;
+	tmp[6] = 0xC6;
+    tmp[7] = 0xA3;
+    tmp[8] = 0xA3;
+    tmp[9] = 0xA3;
+    mpu6050_write_mem(CFG_15,10,tmp);
+
+    tmp[0] = 0xD8;
+    mpu6050_write_mem(CFG_27,1,tmp);
+	
+	dmp_enable_gyro_cal(1);
+	
+	tmp[0] = 0xD8;
+	mpu6050_write_mem(CFG_20, 1, tmp);
+
+	tmp[0] = 0xD8;
+    mpu6050_write_mem(CFG_ANDROID_ORIENT_INT, 1, tmp);
+	
+	dmp_enable_6x_lp_quat(1);
+
+    mpu_reset_fifo(1);
+    return RPi_Success;
+}
+
+int dmp_set_fifo_rate(unsigned short rate)
+{
+    const unsigned char regs_end[12] = {DINAFE, DINAF2, DINAAB,
+        0xc4, DINAAA, DINAF1, DINADF, DINADF, 0xBB, 0xAF, DINADF, DINADF};
+    unsigned short div;
+    unsigned char tmp[8];
+
+    if (rate > DMP_SAMPLE_RATE)
+        return -1;
+    div = DMP_SAMPLE_RATE / rate - 1;
+    tmp[0] = (unsigned char)((div >> 8) & 0xFF);
+    tmp[1] = (unsigned char)(div & 0xFF);
+    if (mpu6050_write_mem(D_0_22, 2, tmp))
+        return -1;
+    if (mpu6050_write_mem(CFG_6, 12, (unsigned char*)regs_end))
+        return -1;
+
+    return 0;
+}
+
+InterruptHandlerStatus mpu6050_interrupt_handler(void)
+{
+	unsigned char buffer[256];
+	InterruptHandlerStatus to_return = Interrupt_Not_Claimed;
+	if (gpio_get_event_detect_status(MPU_INTERRUPT_GPIO_PIN) == event_detected)
+	{
+		do
+		{
+			//Clear MPU, DMP interrupt, then clear event status
+			uint16_t fifo_count = 0;
+			buffer[0] = MPU_INTERRUPT_STATUS_REG;
+			mpu6050_read(buffer, 1);
+
+			if (buffer[0] & 0x10)
+			{
+				quat_buffer_overflow = 1;
+				log_interrupt_string_plus("MPU FIFO overflow status: ", (uint32_t) buffer[0]);
+			}
+			
+			buffer[0] = DMP_INTERRUPT_STATUS_REG;
+			mpu6050_read(buffer, 1);
+
+			gpio_clear_event_detect_status(MPU_INTERRUPT_GPIO_PIN);
+			if (!(buffer[0] & 0x01))
+			{
+				log_interrupt_string_plus("DMP didn't have FIFO data, status: ", (uint32_t) buffer[0]);				
+				break;
+			}
+
+			buffer[0] = MPU_FIFO_COUNT_H_REG;
+			mpu6050_read(buffer, 2);	
+			fifo_count = ((uint16_t) buffer[0]) << 8;
+			fifo_count |= ((uint16_t) buffer[1]) & 0xFF;
+
+			buffer[0] = MPU_FIFO_READ_WRITE_REG;
+			mpu6050_read(buffer, (uint32_t)fifo_count);
+
+			/*int16_t *quat_data_ptr = (int16_t *)(&quat_values[packet_write_index]);
+			packet_write_index++;
+			packet_write_index = packet_write_index % QUAT_BUFFER_SIZE;
+			quat_buffer_overflow = (packet_write_index == packet_read_index) ? 1 : 0 | quat_buffer_overflow;
+			for(uint32_t index = 0; index < 12; index += 2, quat_data_ptr++)
+			{
+				*quat_data_ptr = ((int16_t)buffer[index]) << 8;
+				*quat_data_ptr |= ((int16_t)buffer[index]) & 0xFF;
+			} */
+			
+			uint32_t index = 0;
+			quat_values[packet_write_index].accel_x = ((int16_t)buffer[index++]) << 8;
+			quat_values[packet_write_index].accel_x = ((int16_t)buffer[index++]) & 0xFF;
+			quat_values[packet_write_index].accel_y = ((int16_t)buffer[index++]) << 8;
+			quat_values[packet_write_index].accel_y = ((int16_t)buffer[index++]) & 0xFF;
+			quat_values[packet_write_index].accel_z = ((int16_t)buffer[index++]) << 8;
+			quat_values[packet_write_index].accel_z = ((int16_t)buffer[index++]) & 0xFF;
+			
+			quat_values[packet_write_index].gyro_x = ((int16_t)buffer[index++]) << 8;
+			quat_values[packet_write_index].gyro_x = ((int16_t)buffer[index++]) & 0xFF;
+			quat_values[packet_write_index].gyro_y = ((int16_t)buffer[index++]) << 8;
+			quat_values[packet_write_index].gyro_y = ((int16_t)buffer[index++]) & 0xFF;
+			quat_values[packet_write_index].gyro_z = ((int16_t)buffer[index++]) << 8;
+			quat_values[packet_write_index].gyro_z = ((int16_t)buffer[index]) & 0xFF;
+			
+			packet_write_index++;			
+			packet_write_index = packet_write_index % QUAT_BUFFER_SIZE;
+			quat_buffer_overflow = (packet_write_index == packet_read_index) ? 1 : 0 | quat_buffer_overflow;
+			to_return = Interrupt_Claimed;
+		} while(0);
+	}
+	return to_return;
+}
+int mpu_set_sensors(unsigned char sensors)
+{
+    unsigned char data[2];
+
+    if (sensors & INV_XYZ_GYRO)
+	{
+        data[1] = INV_CLK_PLL;
+	}
+    else if (sensors)
+	{
+        data[1] = 0;
+	}
+
+	data[0] = MPU_POWER_MGMT_1_REG;
+    mpu6050_write(data, 2);
+
+	data[0] = MPU_POWER_MGMT_2_REG;
+    data[1] = 0;
+    if (!(sensors & INV_X_GYRO))
+        data[1] |= BIT_STBY_XG;
+    if (!(sensors & INV_Y_GYRO))
+        data[1] |= BIT_STBY_YG;
+    if (!(sensors & INV_Z_GYRO))
+        data[1] |= BIT_STBY_ZG;
+    if (!(sensors & INV_XYZ_ACCEL))
+        data[1] |= BIT_STBY_XYZA;
+    mpu6050_write(data, 2);
+
+ //   always latched in my world
+		//if (sensors && (sensors != INV_XYZ_ACCEL))
+        /* Latched interrupts only used in LP accel mode. */
+//        mpu_set_int_latched(0);
+		
+    spin_wait_milliseconds(50);
+    return 0;
+}
+
+int mpu_configure_fifo(unsigned char sensors)
+{
+    //unsigned char prev;
+    int result = 0;
+
+    /* Compass data isn't going into the FIFO. Stop trying. */
+    sensors &= ~INV_XYZ_COMPASS;
+
+ /*   if (st.chip_cfg.dmp_on)
+        return 0;
+    else {
+        if (!(st.chip_cfg.sensors))
+            return -1;
+        prev = st.chip_cfg.fifo_enable;
+        st.chip_cfg.fifo_enable = sensors & st.chip_cfg.sensors;
+        if (st.chip_cfg.fifo_enable != sensors)
+            result = -1;
+        else
+            result = 0;
+        if (sensors || st.chip_cfg.lp_accel_mode)
+            set_int_enable(1);
+        else
+            set_int_enable(0);
+        if (sensors) {
+            if (mpu_reset_fifo()) {
+                st.chip_cfg.fifo_enable = prev;
+                return -1;
+            }
+        }
+    }
+*/
+    return result;
+}
+
+int mpu_set_sample_rate(unsigned short rate)
+{
+    unsigned char data[2];
+
+	data[0] = MPU_RATE_DIVIDER_REG;
+
+	data[1] = 1000 / rate - 1;
+	mpu6050_write(data, 2);
+	/* Automatically set LPF to 1/2 sampling rate. */
+	mpu_set_lpf(1000 / (1 + data[1]));
+	return 0;
+}
+
+int dmp_enable_feature(unsigned short mask)
+{
+    unsigned char tmp[10];
+
+    /* TODO: All of these settings can probably be integrated into the default
+     * DMP image.
+     */
+    /* Set integration scale factor. */
+    tmp[0] = (unsigned char)((GYRO_SF >> 24) & 0xFF);
+    tmp[1] = (unsigned char)((GYRO_SF >> 16) & 0xFF);
+    tmp[2] = (unsigned char)((GYRO_SF >> 8) & 0xFF);
+    tmp[3] = (unsigned char)(GYRO_SF & 0xFF);
+    mpu6050_write_mem(D_0_104, 4, tmp);
+
+    /* Send sensor data to the FIFO. */
+    tmp[0] = 0xA3;
+    if (mask & DMP_FEATURE_SEND_RAW_ACCEL) {
+        tmp[1] = 0xC0;
+        tmp[2] = 0xC8;
+        tmp[3] = 0xC2;
+    } else {
+        tmp[1] = 0xA3;
+        tmp[2] = 0xA3;
+        tmp[3] = 0xA3;
+    }
+    if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
+        tmp[4] = 0xC4;
+        tmp[5] = 0xCC;
+        tmp[6] = 0xC6;
+    } else {
+        tmp[4] = 0xA3;
+        tmp[5] = 0xA3;
+        tmp[6] = 0xA3;
+    }
+    tmp[7] = 0xA3;
+    tmp[8] = 0xA3;
+    tmp[9] = 0xA3;
+    mpu6050_write_mem(CFG_15,10,tmp);
+
+    /* Send gesture data to the FIFO. */
+    if (mask & (DMP_FEATURE_TAP | DMP_FEATURE_ANDROID_ORIENT))
+        tmp[0] = DINA20;
+    else
+        tmp[0] = 0xD8;
+    mpu6050_write_mem(CFG_27,1,tmp);
+
+    if (mask & DMP_FEATURE_GYRO_CAL)
+        dmp_enable_gyro_cal(1);
+    else
+        dmp_enable_gyro_cal(0);
+
+    if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
+        if (mask & DMP_FEATURE_SEND_CAL_GYRO) {
+            tmp[0] = 0xB2;
+            tmp[1] = 0x8B;
+            tmp[2] = 0xB6;
+            tmp[3] = 0x9B;
+        } else {
+            tmp[0] = DINAC0;
+            tmp[1] = DINA80;
+            tmp[2] = DINAC2;
+            tmp[3] = DINA90;
+        }
+        mpu6050_write_mem(CFG_GYRO_RAW_DATA, 4, tmp);
+    }
+
+    if (mask & DMP_FEATURE_TAP) {
+        /* Enable tap. */
+        tmp[0] = 0xF8;
+        mpu6050_write_mem(CFG_20, 1, tmp);
+        /*dmp_set_tap_thresh(TAP_XYZ, 250);
+        dmp_set_tap_axes(TAP_XYZ);
+        dmp_set_tap_count(1);
+        dmp_set_tap_time(100);
+        dmp_set_tap_time_multi(500);
+
+        dmp_set_shake_reject_thresh(GYRO_SF, 200);
+        dmp_set_shake_reject_time(40);
+        dmp_set_shake_reject_timeout(10);*/
+    } else {
+        tmp[0] = 0xD8;
+        mpu6050_write_mem(CFG_20, 1, tmp);
+    }
+
+    if (mask & DMP_FEATURE_ANDROID_ORIENT) {
+        tmp[0] = 0xD9;
+    } else
+        tmp[0] = 0xD8;
+    mpu6050_write_mem(CFG_ANDROID_ORIENT_INT, 1, tmp);
+
+    if (mask & DMP_FEATURE_6X_LP_QUAT)
+        dmp_enable_6x_lp_quat(1);
+    else
+        dmp_enable_6x_lp_quat(0);
+
+    mpu_reset_fifo(1);
+
+    packet_length = 0;
+    if (mask & DMP_FEATURE_SEND_RAW_ACCEL)
+        packet_length += 6;
+    if (mask & DMP_FEATURE_SEND_ANY_GYRO)
+        packet_length += 6;
+    if (mask & (DMP_FEATURE_LP_QUAT | DMP_FEATURE_6X_LP_QUAT))
+        packet_length += 16;
+    if (mask & (DMP_FEATURE_TAP | DMP_FEATURE_ANDROID_ORIENT))
+        packet_length += 4;
+
+    return 0;
+}
+
+int mpu_set_bypass(unsigned char bypass_on)
+{
+    unsigned char tmp[2];
+
+    if (bypass_on) {
+		tmp[0] = MPU_USER_CONTROL_REG;
+        mpu6050_read(tmp, 2);
+        tmp[1] &= ~BIT_AUX_IF_EN;
+        mpu6050_write(tmp, 2);
+        spin_wait_milliseconds(3);
+		tmp[0] = MPU_INTERRUPT_CONFIG_REG;
+        tmp[1] = BIT_BYPASS_EN;
+        mpu6050_write(tmp, 2);
+    } 
+    return 0;
+}
+
+int mpu_set_dmp_state(unsigned char enable)
+{
+    unsigned char tmp[2];
+
+    if (enable) {
+        /* Disable data ready interrupt. */
+        //set_int_enable(0);
+        /* Disable bypass mode. */
+        mpu_set_bypass(1);
+        /* Keep constant sample rate, FIFO rate controlled by DMP. */
+        //mpu_set_sample_rate(st.chip_cfg.dmp_sample_rate);
+        /* Remove FIFO elements. */
+		tmp[0] = 0x23;
+        tmp[1] = 0;
+        mpu6050_write(tmp, 2);
+        /* Enable DMP interrupt. */
+        //set_int_enable(1);
+        mpu_reset_fifo(1);
+    } else {
+        /* Disable DMP interrupt. */
+        //set_int_enable(0);
+        /* Restore FIFO settings. */
+		tmp[0] = 0x23;
+        tmp[1] = 0xF4;
+        mpu6050_write(tmp, 2);
+        mpu_reset_fifo(0);
+    }
+    return 0;
+}
+
 Error_Returns mpu6050_init()
 {	
 	Error_Returns to_return = RPi_Success;
@@ -477,20 +1631,16 @@ Error_Returns mpu6050_init()
 	{
 		do
 		{	
+			packet_write_index = 0;
+			packet_read_index = 0;
+			quat_buffer_overflow = 0;
 			to_return = i2c_init();
 			if (to_return != RPi_Success) 
 			{
 				log_string_plus("mpu6050_init():  Error initializing I2C bus ", to_return);
 				break;  //No need to continue just return the failure
 			}
-			
-			to_return = gpio_init();
-			if (to_return != RPi_Success) 
-			{
-				log_string_plus("mpu6050_init():  Error initializing GPIO ", to_return);
-				break;  //No need to continue just return the failure
-			}
-			
+		
 			buffer[0] = MPU6050_WHO_AM_I_REG;
 			to_return = mpu6050_read(buffer, 1);
 			if (to_return != RPi_Success) 
@@ -506,8 +1656,14 @@ Error_Returns mpu6050_init()
 			/* 	Configure the GPIO pin as an input for the MPU interrupt with no PUPD.
 				The interrupt pin on the MPU will be set as push-pull, active high,
 				latched and only cleared when the interrupt status register is read.
-				Enable FIFO overflow and data ready interrupts
 			*/
+			
+			to_return = gpio_init();
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_init():  Error initializing GPIO ", to_return);
+				break;  //No need to continue just return the failure
+			}
 			to_return = gpio_set_function_select(MPU_INTERRUPT_GPIO_PIN, gpio_input);
 			if (to_return != RPi_Success) 
 			{
@@ -528,12 +1684,67 @@ Error_Returns mpu6050_init()
 				to_return = RPi_OperationFailed;
 				break;
 			}
-			to_return = mpu_load_firmware();
+			
+			to_return = mpu6050_reset();
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_init():  Reset device failed ", to_return);
+				break;  //No need to continue just return the failure
+			}
+			
+			buffer[0] = MPU_INTERRUPT_CONFIG_REG;
+			buffer[1] = (1 << MPU6050_INTERRUPT_LATCH);
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_reset():  Error setting MPU_INTERRUPT_CONFIG_REG ", to_return);
+				break;  //No need to continue just return the failure
+			}
+
+			mpu_set_sensors(INV_XYZ_GYRO | INV_XYZ_ACCEL);
+			mpu_configure_fifo(INV_XYZ_GYRO | INV_XYZ_ACCEL);
+			mpu_set_sample_rate(DEFAULT_MPU_HZ);
+			
+			to_return = mpu_set_gyro_fsr(2000);
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_init():  Failed to set gyro full scale ", to_return);
+				break;  //No need to continue just return the failure
+			}			
+			to_return = mpu_set_accel_fsr(2);
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_init():  Failed to set accel full scale ", to_return);
+				break;  //No need to continue just return the failure
+			}	
+			to_return = mpu_set_lpf(42);
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_init():  Failed to set LPF ", to_return);
+				break;  //No need to continue just return the failure
+			}
+			
+			to_return = dmp_load_firmware();
 			if (to_return != RPi_Success) 
 			{
 				log_string_plus("mpu6050_init():  Failed to load DMP firmware ", to_return);
 				break;  //No need to continue just return the failure
 			}
+			
+			dmp_set_orientation(4);
+			unsigned short dmp_features = DMP_FEATURE_6X_LP_QUAT | DMP_FEATURE_TAP |
+        DMP_FEATURE_ANDROID_ORIENT | DMP_FEATURE_SEND_RAW_ACCEL | DMP_FEATURE_SEND_CAL_GYRO |
+        DMP_FEATURE_GYRO_CAL;
+			dmp_enable_feature(dmp_features);
+			//dmp_enable_features();	
+			dmp_set_fifo_rate(DEFAULT_MPU_HZ);			
+			mpu_set_dmp_state(1);
+/*			to_return = dmp_set_interrupt_mode();
+			if (to_return != RPi_Success) 
+			{
+				log_string_plus("mpu6050_init():  Failed enable enable dmp interrupts ", to_return);
+				break;  //No need to continue just return the failure
+			}	
+*/			
 			mpu6050_initialized = 1;
 		} while(0);
 	}
@@ -543,12 +1754,56 @@ Error_Returns mpu6050_init()
 Error_Returns mpu6050_reset()
 {
 	Error_Returns to_return = RPi_Success;
-
+	unsigned char buffer[2];
 	do
 	{	
 		i2c_init();
-		spin_wait(TIME_DELAY); 				 
+		
+		/* Reset the MPU all registers will be 0
+		   except the MPU6050_WHO_AM_I_REG and MPU_POWER_MGMT_1_REG.
+		   The device will be in sleep mode 
+		*/
+		buffer[0] = MPU_POWER_MGMT_1_REG;
+		buffer[1] = (1 << MPU6050_RESET_DEVICE);
+		to_return = mpu6050_write(buffer, 2);
+		if (to_return != RPi_Success) 
+		{
+			log_string_plus("mpu6050_reset():  Error resetting device ", to_return);
+			break;  //No need to continue just return the failure
+		}
+		
+		spin_wait_milliseconds(100);
+		
+		buffer[1] = MPU6050_AWAKE;
+		to_return = mpu6050_write(buffer, 2);
+		if (to_return != RPi_Success) 
+		{
+			log_string_plus("mpu6050_reset():  Error waking device up ", to_return);
+			break;  //No need to continue just return the failure
+		}
+		spin_wait_milliseconds(100);		
 	} while(0);
 		
+	return to_return;
+}
+
+Error_Returns mpu6050_retrieve_values(MPU6050_Accel_Gyro_Values *values)
+{
+	Error_Returns to_return = MPU6050_No_New_Data;
+	do
+	{
+		if (quat_buffer_overflow)
+		{
+			to_return = MPU6050_Data_Overflow;
+			break;
+		}
+		if (packet_read_index != packet_write_index)
+		{	
+			*values = quat_values[packet_read_index];
+			packet_read_index++;
+			packet_read_index = packet_read_index % QUAT_BUFFER_SIZE;			
+			to_return = RPi_Success;
+		}
+	} while(0);
 	return to_return;
 }

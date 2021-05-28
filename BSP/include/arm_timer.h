@@ -27,6 +27,9 @@ that just spins the ARM CPU.
 #pragma once
 #include "common.h"
 
+#define SPIN_WAIT_ONE_SECOND 3700000
+#define SPIN_WAIT_ONE_MILLISECOND 3700
+
 Error_Returns arm_timer_init(void);
 
 Error_Returns arm_timer_enable(void (*handler_ptr)(void), uint32_t time_out);
@@ -36,3 +39,7 @@ Error_Returns arm_timer_disable(void);
 void arm_timer_dump_registers(void);
 
 void spin_wait(uint32_t spin_count);
+
+void spin_wait_seconds(uint32_t seconds);
+
+void spin_wait_milliseconds(uint32_t milliseconds);

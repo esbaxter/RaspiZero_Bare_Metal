@@ -28,18 +28,11 @@ is definitely a work in progress...
 #include "common.h"
 #include "altitude_package.h"
 #include "log.h"
-#include "arm_timer.h"
 
 #include "mpu6050.h"
+#include "aux_peripherals.h"
 
 int __errno = 0;
-
-void tick_handler(void)
-{
-	int32_t delta_meter;
-	altitude_get_delta(&delta_meter);
-	printf("Delta: %d\n\r", (int)delta_meter/256);
-}
 
 int drone_control()
 {
@@ -60,37 +53,36 @@ int drone_control()
 		log_indicate_system_error();
 	}
 	
-	status = arm_timer_init();
-	if (status != RPi_Success)
-	{
-		log_string_plus("timer init failed: ", status);
-		log_indicate_system_error();
-	}
-	
-	status = arm_timer_enable(tick_handler, 500);
-	if (status != RPi_Success)
-	{
-		log_string_plus("timer enable failed: ", status);
-		log_indicate_system_error();
-	}
-	
 	log_string("Altitude test ready\n\r");
 	while (1)
 	{
+		//int32_t delta_meter;
+		MPU6050_Accel_Gyro_Values mpu_values; 
+		//altitude_get_delta(&delta_meter);
+		status = mpu6050_retrieve_values(&mpu_values);
+		if (status == RPi_Success)
+		{
+			log_string_plus("Accel X: ", (uint32_t)mpu_values.accel_x);
+			log_string_plus("Accel Y: ", (uint32_t)mpu_values.accel_y);
+			log_string_plus("Accel Z: ", (uint32_t)mpu_values.accel_z);
+			log_string_plus("Gyro X: ", (uint32_t)mpu_values.gyro_x);
+			log_string_plus("Gyro Y: ", (uint32_t)mpu_values.gyro_y);
+			log_string_plus("Gyro Z: ", (uint32_t)mpu_values.gyro_z);			
+		}
+		else if (status == MPU6050_Data_Overflow)
+		{
+			log_string("MPU data overflow, aborting...");
+			break;
+		}
+
 		char tty_char = log_getchar();
 		if (tty_char == 'd')
 		{
-			status = arm_timer_disable();
-			if (status != RPi_Success)
-				{
-					log_string_plus("timer disable failed: ", status);
-					log_indicate_system_error();
-				}
 			log_string("See ya!");
-			log_dump_buffer();
 			break;
 		}
 	}
-	
+	mpu6050_reset();
+	log_dump_buffer();
     return(0);
 }

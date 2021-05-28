@@ -127,10 +127,9 @@ Error_Returns i2c_read(uint32_t slave_address, unsigned char *data,
 	{
 		while(!(bsc1_registers->bsc_status & (BSC_STATUS_CLKT | BSC_STATUS_ERR | BSC_STATUS_DONE)))
 		{
-			while(bsc1_registers->bsc_status & (BSC_STATUS_CLKT | BSC_STATUS_ERR | BSC_STATUS_RXD))
+			while(bsc1_registers->bsc_status & (BSC_STATUS_RXD))
 			{
-				uint32_t the_byte = bsc1_registers->bsc_data_FIFO;
-				*data++ = the_byte & BSC_BYTE_MASK;
+				*data++ = bsc1_registers->bsc_data_FIFO & BSC_BYTE_MASK;
 				count++;
 			}
 		}
@@ -148,10 +147,9 @@ Error_Returns i2c_read(uint32_t slave_address, unsigned char *data,
 			break;
 		}
 		
-		while(count < number_bytes && bsc1_registers->bsc_status & BSC_STATUS_RXD)
+		while((count < number_bytes) && (bsc1_registers->bsc_status & BSC_STATUS_RXD))
 		{
-			uint32_t the_byte = bsc1_registers->bsc_data_FIFO;
-			*data++ = the_byte & BSC_BYTE_MASK;
+			*data++ = bsc1_registers->bsc_data_FIFO & BSC_BYTE_MASK;
 			count++;
 		}
 		

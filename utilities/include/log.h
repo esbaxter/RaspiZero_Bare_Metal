@@ -38,6 +38,10 @@ void log_string_plus(const char *log_string, uint32_t value);
 
 void log_string(const char *log_string);
 
+void log_interrupt_string_plus(const char *log_string, uint32_t value);
+
+void log_interrupt_string(const char *log_string);
+
 void log_dump_buffer(void);
 
 char log_getchar(void);

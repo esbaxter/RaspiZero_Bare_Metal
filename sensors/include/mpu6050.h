@@ -26,7 +26,20 @@ Interface into the support software for the InvenSense MPU 6050 motion processin
 #pragma once
 #include "common.h"
 
+//TODO:  REMOVE!  This is here so the client knows how large this is
+#define DMP_PACKET_SIZE 42
+
+typedef struct {
+	int16_t accel_x;
+	int16_t accel_y;
+	int16_t accel_z;
+	int16_t gyro_x;
+	int16_t gyro_y;
+	int16_t gyro_z;
+} MPU6050_Accel_Gyro_Values;
 
 Error_Returns mpu6050_init();
 
 Error_Returns mpu6050_reset();
+
+Error_Returns mpu6050_retrieve_values(MPU6050_Accel_Gyro_Values *values);
