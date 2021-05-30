@@ -30,12 +30,19 @@ Interface into the support software for the InvenSense MPU 6050 motion processin
 #define DMP_PACKET_SIZE 42
 
 typedef struct {
+	int32_t quat_w;
+	int32_t quat_x;
+	int32_t quat_y;
+	int32_t quat_z;
+	//Currently I don't see any reason to keep the accelerometer and gyro data around
+/*
 	int16_t accel_x;
 	int16_t accel_y;
 	int16_t accel_z;
 	int16_t gyro_x;
 	int16_t gyro_y;
 	int16_t gyro_z;
+	*/
 } MPU6050_Accel_Gyro_Values;
 
 Error_Returns mpu6050_init();

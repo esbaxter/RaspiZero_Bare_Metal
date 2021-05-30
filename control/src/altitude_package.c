@@ -31,19 +31,15 @@ and humidity chip.
 #include "arm_timer.h"
 #include <math.h>
 
-#define MAGIC_CONSTANT				44307.69396
-#define MAGIC_EXPONENT				0.190284
-#define ATMOSPHERIC_LAPSE_RATE		0.65  // This is in K/cm
+#define MAGIC_EXPONENT				0.1902225603956629
+#define CENTIGRADE_TO_KELVIN		273.15 
+#define ATMOSPHERIC_LAPSE_RATE		0.000065  // This is in K/cm
 
-//static double base_temperature_factor; //In cm which is equal to the base temperature/atmospheric lapse rate
-//static double base_pressure;
-static uint32_t base_pressure = 0;
+static double base_pressure = 0;
 
 Error_Returns altitude_initialize()
 {
 	Error_Returns to_return = RPi_Success;
-	int32_t current_temperature =0;
-	//uint32_t current_pressure = 0;
 
 	do
 	{
@@ -54,17 +50,13 @@ Error_Returns altitude_initialize()
 			break;
 		}
 
-		to_return = bme280_get_current_temperature_pressure_int(&current_temperature, &base_pressure);
+		to_return = bme280_get_current_pressure(&base_pressure);
 		if (to_return != RPi_Success)
 		{
 			log_string_plus("altitude_package: bme280_get_current_temperature_pressure_int failed: ", to_return);
 			break;
 		}
-		//base_temperature_factor = ((double)(total_temperature/8) / 100.0) + 273.15; //Convert to Kelvin
-		//base_temperature_factor /= ATMOSPHERIC_LAPSE_RATE;
-		//base_pressure = ((double)(total_pressure/8)) / 256.0;  //Convert from Q24.8 format
-		
-		
+			
 		to_return = mpu6050_init();
 		if (to_return != RPi_Success)
 		{
@@ -77,13 +69,7 @@ Error_Returns altitude_initialize()
 
 Error_Returns altitude_reset()
 {
-	int32_t current_temperature;
-	//uint32_t current_pressure;
-	Error_Returns to_return = bme280_get_current_temperature_pressure_int(&current_temperature, &base_pressure);
-	//base_temperature_factor = ((double)current_temperature / 100.0) + 273.15; //Convert to Kelvin
-	//base_temperature_factor /= ATMOSPHERIC_LAPSE_RATE;
-	//base_pressure = ((double)current_pressure) / 256.0;  //Convert from Q24.8 format
-	return to_return;
+	return bme280_get_current_pressure(&base_pressure);
 }
 
 Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
@@ -92,9 +78,9 @@ Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
 	
 	do
 	{
-		uint32_t current_pressure = 0;
-		to_return = bme280_get_current_pressure_int(&current_pressure);
-		//double pressure = (double)current_pressure /  256.0; //Convert from Q24.8 format
+		double current_pressure;
+		double current_temp;
+		to_return = bme280_get_current_temperature_pressure(&current_temp, &current_pressure);
 		
 		if (to_return != RPi_Success)
 		{
@@ -102,12 +88,11 @@ Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
 			break;
 		}
 		
-		/* Calculation is based on the simplified formula found here:
-		   https://en.wikipedia.org/wiki/Vertical_pressure_variation
+		/* Calculation is based on the hypsometric formula found here:
+		   https://keisan.casio.com/exec/system/1224585971
 		*/
-		//pressure = base_temperature_factor * (1 - pow(pressure / base_pressure, MAGIC_EXPONENT));
-		//*delta_cm_ptr = (int32_t)pressure;
-		*delta_cm_ptr = base_pressure - current_pressure;
+		
+		*delta_cm_ptr = (int32_t)(((pow(base_pressure / current_pressure, MAGIC_EXPONENT) - 1) * (current_temp + CENTIGRADE_TO_KELVIN)) / ATMOSPHERIC_LAPSE_RATE);
 	} while(0);
 	
 	return to_return;

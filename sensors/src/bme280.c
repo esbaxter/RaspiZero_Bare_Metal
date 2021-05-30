@@ -116,57 +116,6 @@ static Error_Returns bme280_read(unsigned char *buffer, unsigned int rx_bytes)
 	return to_return;
 }
 
-static int32_t compensateTemperatureInt(int32_t adc_T)
-{
-    int32_t var1;
-    int32_t var2;
-    int32_t temperature;
-    int32_t temperature_min = -4000;
-    int32_t temperature_max = 8500;
-
-    var1 = (int32_t)((adc_T / 8) - ((int32_t)dig_T1 * 2));
-    var1 = (var1 * ((int32_t)dig_T2)) / 2048;
-    var2 = (int32_t)((adc_T / 16) - ((int32_t)dig_T1));
-    var2 = (((var2 * var2) / 4096) * ((int32_t)dig_T3)) / 16384;
-    t_fine = var1 + var2;
-    temperature = (t_fine * 5 + 128) / 256;
-
-    if (temperature < temperature_min)
-    {
-        temperature = temperature_min;
-    }
-    else if (temperature > temperature_max)
-    {
-        temperature = temperature_max;
-    }
-    return temperature;
-}
-
-static uint32_t compensatePressureInt(int32_t adc_P)
-{
-   	int64_t var1;
-	int64_t var2;
-	int64_t pressure;
-	
-	var1 = ((int64_t)t_fine) - 128000;
-	var2 = var1 * var1 * (int64_t)dig_P6;
-	var2 = var2 + ((var1 * (int64_t)dig_P5) << 17);
-	var2 = var2 + (((int64_t)dig_P4) << 35);
-	var1 = ((var1 * var1 * (int64_t)dig_P3) >> 8) + ((var1 * (int64_t)dig_P2) << 12);
-	var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)dig_P1) >> 33;
-	if (var1 < 0)
-	{
-		return 0;
-	}
-	
-	pressure = 1048576 - adc_P;
-	pressure = (((pressure << 31) - var2) * 3125) / var1;
-	var1 = (((int64_t)dig_P9) * (pressure >> 13) * (pressure >> 13)) >> 25;
-	var2 = (((int64_t)dig_P8) * pressure) >> 19;
-	pressure = ((pressure + var1 + var2) >> 8) + (((int64_t)dig_P7) << 4);
-	return (uint32_t) pressure;
-}
-
 static double compensateTemperature(int32_t adc_T)
 {
   double v_x1_u32;
@@ -472,25 +421,6 @@ Error_Returns bme280_get_current_temperature_pressure(double *temperature_ptr, d
 	return to_return;
 }
 
-
-Error_Returns bme280_get_current_temperature_pressure_int(int32_t *temperature_ptr, uint32_t *pressure_ptr)
-{
-	Error_Returns to_return = RPi_Success;
-	BME280_S32_t adc_P = 0;
-	BME280_S32_t adc_T = 0;
-	BME280_S32_t adc_H = 0;
-	
-	do
-	{
-		to_return = bme280_read_data(&adc_T, &adc_P, &adc_H);
-		if (to_return != RPi_Success) break;  //No need to continue, just return the error
-		*temperature_ptr = compensateTemperatureInt(adc_T);	
-		*pressure_ptr = compensatePressureInt(adc_P);		
-	}  while(0);
-	return to_return;
-}
-
-
 Error_Returns bme280_get_current_pressure(double *pressure_ptr)
 {
 	Error_Returns to_return = RPi_Success;
@@ -504,23 +434,6 @@ Error_Returns bme280_get_current_pressure(double *pressure_ptr)
 		if (to_return != RPi_Success) break;  //No need to continue, just return the error
 		compensateTemperature(adc_T);	
 		*pressure_ptr = compensatePressure(adc_P);		
-	}  while(0);
-	return to_return;
-}
-
-Error_Returns bme280_get_current_pressure_int(uint32_t *pressure_ptr)
-{
-	Error_Returns to_return = RPi_Success;
-	BME280_S32_t adc_P = 0;
-	BME280_S32_t adc_T = 0;
-	BME280_S32_t adc_H = 0;
-	
-	do
-	{
-		to_return = bme280_read_data(&adc_T, &adc_P, &adc_H);
-		if (to_return != RPi_Success) break;  //No need to continue, just return the error
-		compensateTemperatureInt(adc_T);	
-		*pressure_ptr = compensatePressureInt(adc_P);		
 	}  while(0);
 	return to_return;
 }

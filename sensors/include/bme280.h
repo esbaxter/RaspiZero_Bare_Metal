@@ -44,7 +44,3 @@ Error_Returns bme280_print_compensated_values();
 Error_Returns bme280_get_current_pressure(double *pressure_ptr);
 
 Error_Returns bme280_get_current_temperature_pressure(double *temperature_ptr, double *pressure_ptr);
-
-Error_Returns bme280_get_current_temperature_pressure_int(int32_t *temperature_ptr, uint32_t *pressure_ptr);
-
-Error_Returns bme280_get_current_pressure_int(uint32_t *pressure_ptr);

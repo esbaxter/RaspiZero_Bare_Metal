@@ -1053,7 +1053,7 @@ static Error_Returns mpu_reset_fifo(unsigned char dmp_on)
 			}
 			spin_wait_milliseconds(50);
 			buffer[0] = MPU_INTERRUPT_ENABLE_REG;
-			buffer[1] = BIT_DATA_RDY_EN;
+			buffer[1] = 0x02; //BIT_DATA_RDY_EN;
 			to_return = mpu6050_write(buffer, 2);
 			if (to_return != RPi_Success)
 			{
@@ -1323,13 +1323,13 @@ InterruptHandlerStatus mpu6050_interrupt_handler(void)
 			uint16_t fifo_count = 0;
 			buffer[0] = MPU_INTERRUPT_STATUS_REG;
 			mpu6050_read(buffer, 1);
-
+			
 			if (buffer[0] & 0x10)
 			{
 				quat_buffer_overflow = 1;
 				log_interrupt_string_plus("MPU FIFO overflow status: ", (uint32_t) buffer[0]);
 			}
-			
+
 			buffer[0] = DMP_INTERRUPT_STATUS_REG;
 			mpu6050_read(buffer, 1);
 
@@ -1347,18 +1347,20 @@ InterruptHandlerStatus mpu6050_interrupt_handler(void)
 
 			buffer[0] = MPU_FIFO_READ_WRITE_REG;
 			mpu6050_read(buffer, (uint32_t)fifo_count);
-
-			/*int16_t *quat_data_ptr = (int16_t *)(&quat_values[packet_write_index]);
-			packet_write_index++;
-			packet_write_index = packet_write_index % QUAT_BUFFER_SIZE;
-			quat_buffer_overflow = (packet_write_index == packet_read_index) ? 1 : 0 | quat_buffer_overflow;
-			for(uint32_t index = 0; index < 12; index += 2, quat_data_ptr++)
-			{
-				*quat_data_ptr = ((int16_t)buffer[index]) << 8;
-				*quat_data_ptr |= ((int16_t)buffer[index]) & 0xFF;
-			} */
 			
-			uint32_t index = 0;
+
+			quat_values[packet_write_index].quat_w = ((long)buffer[0] << 24) | 
+				((long)buffer[1] << 16) | ((long)buffer[2] << 8) | buffer[3];
+			quat_values[packet_write_index].quat_x = ((long)buffer[4] << 24) | 
+				((long)buffer[5] << 16) | ((long)buffer[6] << 8) | buffer[7];
+			quat_values[packet_write_index].quat_y = ((long)buffer[8] << 24) | 
+				((long)buffer[9] << 16) | ((long)buffer[10] << 8) | buffer[11];
+			quat_values[packet_write_index].quat_z = ((long)buffer[12] << 24) | 
+				((long)buffer[13] << 16) | ((long)buffer[14] << 8) | buffer[15];
+				
+			//Currently I don't see any reason to keep the accelerometer and gyro data around
+/*  
+			uint32_t index = 16;
 			quat_values[packet_write_index].accel_x = ((int16_t)buffer[index++]) << 8;
 			quat_values[packet_write_index].accel_x = ((int16_t)buffer[index++]) & 0xFF;
 			quat_values[packet_write_index].accel_y = ((int16_t)buffer[index++]) << 8;
@@ -1372,6 +1374,7 @@ InterruptHandlerStatus mpu6050_interrupt_handler(void)
 			quat_values[packet_write_index].gyro_y = ((int16_t)buffer[index++]) & 0xFF;
 			quat_values[packet_write_index].gyro_z = ((int16_t)buffer[index++]) << 8;
 			quat_values[packet_write_index].gyro_z = ((int16_t)buffer[index]) & 0xFF;
+*/
 			
 			packet_write_index++;			
 			packet_write_index = packet_write_index % QUAT_BUFFER_SIZE;
@@ -1731,9 +1734,21 @@ Error_Returns mpu6050_init()
 			}
 			
 			dmp_set_orientation(4);
-			unsigned short dmp_features = DMP_FEATURE_6X_LP_QUAT | DMP_FEATURE_TAP |
-        DMP_FEATURE_ANDROID_ORIENT | DMP_FEATURE_SEND_RAW_ACCEL | DMP_FEATURE_SEND_CAL_GYRO |
-        DMP_FEATURE_GYRO_CAL;
+			/*unsigned short dmp_features = 
+				DMP_FEATURE_6X_LP_QUAT | 
+				DMP_FEATURE_TAP |
+				DMP_FEATURE_ANDROID_ORIENT | 
+				DMP_FEATURE_SEND_RAW_ACCEL | 
+				DMP_FEATURE_SEND_CAL_GYRO |
+				DMP_FEATURE_GYRO_CAL;
+				*/
+			unsigned short dmp_features = 
+				DMP_FEATURE_6X_LP_QUAT | 
+				DMP_FEATURE_TAP |
+				//DMP_FEATURE_ANDROID_ORIENT | 
+				DMP_FEATURE_SEND_RAW_ACCEL | 
+				DMP_FEATURE_SEND_CAL_GYRO |
+				DMP_FEATURE_GYRO_CAL;
 			dmp_enable_feature(dmp_features);
 			//dmp_enable_features();	
 			dmp_set_fifo_rate(DEFAULT_MPU_HZ);			

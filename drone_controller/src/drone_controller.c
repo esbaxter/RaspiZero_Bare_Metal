@@ -54,20 +54,31 @@ int drone_control()
 	}
 	
 	log_string("Altitude test ready\n\r");
+	uint32_t count = 0;
 	while (1)
 	{
-		//int32_t delta_meter;
+		int32_t delta_cm;
 		MPU6050_Accel_Gyro_Values mpu_values; 
-		//altitude_get_delta(&delta_meter);
 		status = mpu6050_retrieve_values(&mpu_values);
 		if (status == RPi_Success)
 		{
-			log_string_plus("Accel X: ", (uint32_t)mpu_values.accel_x);
-			log_string_plus("Accel Y: ", (uint32_t)mpu_values.accel_y);
-			log_string_plus("Accel Z: ", (uint32_t)mpu_values.accel_z);
-			log_string_plus("Gyro X: ", (uint32_t)mpu_values.gyro_x);
-			log_string_plus("Gyro Y: ", (uint32_t)mpu_values.gyro_y);
-			log_string_plus("Gyro Z: ", (uint32_t)mpu_values.gyro_z);			
+			altitude_get_delta(&delta_cm);
+			printf("delta_cm: %d \n\r", (int)delta_cm);
+			if ((delta_cm > 5) ||  (delta_cm < -5))
+			{
+				count++;
+				printf("altitude reset: %u\n\r", (unsigned int)count);
+				if (altitude_reset() != RPi_Success)
+				{
+					log_string("altitude_reset failed");
+					break;
+				}
+			}
+
+			log_string_plus("Quat w: ", (uint32_t)mpu_values.quat_w);
+			log_string_plus("Quat x: ", (uint32_t)mpu_values.quat_x);
+			log_string_plus("Quat y: ", (uint32_t)mpu_values.quat_y);
+			log_string_plus("Quat z: ", (uint32_t)mpu_values.quat_z);	
 		}
 		else if (status == MPU6050_Data_Overflow)
 		{
