@@ -26,6 +26,8 @@ Interface into the support software for the BME 280 peripheral chip.
 #pragma once
 #include "common.h"
 
+#define BME280_NUMBER_SUPPORTED_DEVICES 2
+
 typedef int BME280_S32_t;
 typedef unsigned int BME280_U32_t;
 typedef long long signed int BME280_S64_t;
@@ -35,12 +37,19 @@ typedef enum {
 	bme280_altitude_mode
 } BME280_mode;
 
-Error_Returns bme280_init(BME280_mode mode);
+typedef enum {
+	bme280_one = 0x76,
+	bme280_two = 0x77
+} BME280_id;
 
-Error_Returns bme280_reset();
+int32_t bme280_get_offset_from_id(BME280_id id);
 
-Error_Returns bme280_print_compensated_values();
+Error_Returns bme280_init(BME280_id id, BME280_mode mode);
 
-Error_Returns bme280_get_current_pressure(double *pressure_ptr);
+Error_Returns bme280_reset(BME280_id id);
 
-Error_Returns bme280_get_current_temperature_pressure(double *temperature_ptr, double *pressure_ptr);
+Error_Returns bme280_print_compensated_values(BME280_id id);
+
+Error_Returns bme280_get_current_pressure(BME280_id id, double *pressure_ptr);
+
+Error_Returns bme280_get_current_temperature_pressure(BME280_id id, double *temperature_ptr, double *pressure_ptr);

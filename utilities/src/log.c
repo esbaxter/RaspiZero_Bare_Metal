@@ -155,6 +155,12 @@ void log_indicate_system_error(void)
 		gpio_clear_pin(LED_GPIO_PIN);
 		spin_wait(TIMER_VAL);
 		gpio_set_pin(LED_GPIO_PIN);
+		char tty_char = log_getchar();
+		if (tty_char == 'd')
+		{
+			log_dump_buffer();
+			break;
+		}
 	}
 }
 
