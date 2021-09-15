@@ -33,13 +33,14 @@ and humidity chip.
 
 #define BME280_MEASUREMENT_ERROR .002
 #define BME280_INITIAL_ERROR_ESTIMATE 0.4
-#define BME280_CONVERGENCE_LOOP_COUNT 20
+#define BME280_CONVERGENCE_LOOP_COUNT 200
 
 #define MAGIC_EXPONENT				0.1902225603956629
 #define CENTIGRADE_TO_KELVIN		273.15 
 #define ATMOSPHERIC_LAPSE_RATE		0.000065  // This is in K/cm
+#define STANDARD_MSL_HPASCALS		1013.25
 
-double fabs(double x);
+//double fabs(double x);
 
 typedef struct Kalman_Data {
 	double measurement_error;
@@ -50,17 +51,42 @@ typedef struct Kalman_Data {
 static double base_pressure[BME280_NUMBER_SUPPORTED_DEVICES];
 static Kalman_Filter_Data kalman_filter_data[BME280_NUMBER_SUPPORTED_DEVICES];
 
-
-double updateEstimate(double measure, Kalman_Filter_Data *filter_data)
+void update_estimate(double measure, Kalman_Filter_Data *filter_data)
 {	
 	double kalman_gain = filter_data->estimate_error/(filter_data->estimate_error + filter_data->measurement_error);
 	filter_data->estimate = filter_data->estimate + (kalman_gain * (measure - filter_data->estimate));
 	filter_data->estimate_error = (1.0 - kalman_gain)*filter_data->estimate_error;
-	printf("%f,%f,%f,%f\n\r", measure, filter_data->estimate, kalman_gain, filter_data->estimate_error);
-	return filter_data->estimate;
+	//printf("%f,%f,%f,%f\n\r", measure, filter_data->estimate, kalman_gain, filter_data->estimate_error);
+	return;
 }
 
-Error_Returns getFilteredReadings(double *pressure_array)
+Error_Returns get_filtered_readings()
+{
+	Error_Returns to_return = RPi_Success;
+	do
+	{
+		for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
+		{
+			int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
+			double raw;
+			to_return = bme280_get_current_pressure(bme280_id, &raw);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("altitude_package: get_filtered_readings failed: ", to_return);
+				break;
+			}
+			update_estimate(raw, &kalman_filter_data[bme280_offset]);
+		}
+		
+		if (to_return != RPi_Success)
+		{
+			break;
+		}	
+	} while(0);
+	return to_return;
+}
+
+Error_Returns reset_base_pressure()
 {
 	Error_Returns to_return = RPi_Success;
 	do
@@ -71,35 +97,28 @@ Error_Returns getFilteredReadings(double *pressure_array)
 			to_return = bme280_get_current_pressure(bme280_id, &kalman_filter_data[bme280_offset].estimate);
 			if (to_return != RPi_Success)
 			{
-				log_string_plus("altitude_package: getFilteredReadings failed to get initialize pressure: ", to_return);
+				log_string_plus("altitude_package: get_filtered_readings failed to get initialize pressure: ", to_return);
 				break;
 			}
 			kalman_filter_data[bme280_offset].measurement_error = BME280_MEASUREMENT_ERROR;
 			kalman_filter_data[bme280_offset].measurement_error = BME280_MEASUREMENT_ERROR;
 			kalman_filter_data[bme280_offset].estimate_error = BME280_INITIAL_ERROR_ESTIMATE;
 		}
-		
-		for(unsigned int counter = 0; counter < BME280_CONVERGENCE_LOOP_COUNT; counter++)
+
+		//Find a stable value for the at rest pressure
+		for (unsigned int count = 0; count < BME280_CONVERGENCE_LOOP_COUNT; count++)
 		{
-			for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
-			{
-				int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
-				double raw;
-				to_return = bme280_get_current_pressure(bme280_id, &raw);
-				if (to_return != RPi_Success)
-				{
-					log_string_plus("altitude_package: getFilteredReadings failed: ", to_return);
-					break;
-				}
-				pressure_array[bme280_offset] = updateEstimate(raw, &kalman_filter_data[bme280_offset]);
-			}
+			to_return = get_filtered_readings();
 			if (to_return != RPi_Success)
 			{
+				log_string_plus("altitude_package: reset_base_pressure() failed to get filtered reading: ", to_return);
 				break;
 			}
 			spin_wait_milliseconds(10);
-		}		
-	}while(0);
+		}
+		base_pressure[0] = kalman_filter_data[0].estimate;
+		base_pressure[1] = kalman_filter_data[1].estimate;
+	} while(0);
 	return to_return;
 }
 
@@ -120,18 +139,16 @@ Error_Returns altitude_initialize()
 			}
 		}
 		
+		to_return = reset_base_pressure();	
 		if (to_return != RPi_Success)
 			{
 				break;
 			}
 			
-		//Find a stable value for the at rest pressure
-		to_return = getFilteredReadings(&base_pressure[0]);	
-		//printf("base pressures: %f,%f\n\r", base_pressure[0], base_pressure[1]);
-		printf("\n\r");
+			
+		printf("base pressures: %f,%f\n\r", kalman_filter_data[0].estimate, kalman_filter_data[1].estimate);
 		if (to_return != RPi_Success)
 		{
-			log_string_plus("altitude_package: altitude_initialize failed to reset: ", to_return);
 			break;
 		}
 			
@@ -147,7 +164,7 @@ Error_Returns altitude_initialize()
 
 Error_Returns altitude_reset()
 {
-	return getFilteredReadings(&base_pressure[0]);
+	return reset_base_pressure();
 }
 
 Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
@@ -157,15 +174,13 @@ Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
 	
 	do
 	{		
-		double current_pressure[BME280_NUMBER_SUPPORTED_DEVICES];
 		double altitude[BME280_NUMBER_SUPPORTED_DEVICES];
 		
-		to_return = getFilteredReadings(&current_pressure[0]);
-		printf("\n\r");
-		//printf("%f,%f\n\r", current_pressure[0], current_pressure[1]);
+		to_return = get_filtered_readings();
+		//printf("%f,%f\n\r", kalman_filter_data[0].estimate, kalman_filter_data[1].estimate);
 		if (to_return != RPi_Success)
 		{
-			log_string_plus("altitude_package: getFilteredReadings failed while in altitude_get_delta: ", to_return);
+			log_string_plus("altitude_package: get_filtered_readings failed while in altitude_get_delta: ", to_return);
 			break;
 		}
 		
@@ -184,7 +199,7 @@ Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
 			   https://keisan.casio.com/exec/system/1224585971
 			*/
 			altitude[bme280_offset] = (((pow(base_pressure[bme280_offset] / 
-				current_pressure[bme280_offset], MAGIC_EXPONENT) - 1) * 
+				kalman_filter_data[bme280_offset].estimate, MAGIC_EXPONENT) - 1) * 
 				(current_temperature + CENTIGRADE_TO_KELVIN)) / ATMOSPHERIC_LAPSE_RATE);
 			altitude_average += altitude[bme280_offset];
 		}
@@ -195,7 +210,7 @@ Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
 		}
 		
 		altitude_average /= 2.0;
-		//printf("%f, %f, %f\n\r", altitude[0], altitude[1], altitude_average);
+		printf("%f, %f, %f\n\r", altitude[0], altitude[1], altitude_average);
 		*delta_cm_ptr = (int32_t)altitude_average;
 	} while(0);
 	
