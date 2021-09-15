@@ -169,23 +169,41 @@ void log_cpu_registers(Exception_Types error_source, uint32_t stack_pointer, uin
 	log_string(" ");
 	switch (error_source)
 	{
-		case Exc_Reset: log_string("Exc_Reset");
+		case Exc_Reset: 
+			printf("%s\n\r", "Exc_Reset");
+			log_string("Exc_Reset");
 			break;
-		case Exc_Undefined: log_string("Exc_Undefined");
+		case Exc_Undefined: 
+			printf("%s\n\r", "Exc_Undefined");
+			log_string("Exc_Undefined");
 			break;
-		case Exc_SoftwareInterrupt: log_string("Exc_SoftwareInterrupt");
+		case Exc_SoftwareInterrupt:
+			printf("%s\n\r", "Exc_SoftwareInterrupt");
+			log_string("Exc_SoftwareInterrupt");
 			break;
-		case Exc_Prefetch: log_string("Exc_Prefetch");
+		case Exc_Prefetch: 
+			printf("%s\n\r", "Exc_Prefetch");
+			log_string("Exc_Prefetch");
 			break;
-		case Exc_DataAbort: log_string("Exc_DataAbort");
+		case Exc_DataAbort: 
+			printf("%s\n\r", "Exc_DataAbort");
+			log_string("Exc_DataAbort");
 			break;
-		case Exc_Unused: log_string("Exc_Unused");
+		case Exc_Unused: 
+			printf("%s\n\r", "Exc_Unused");
+			log_string("Exc_Unused");
 			break;
-		case Exc_Interrupt: log_string("Exc_Interrupt");
+		case Exc_Interrupt: 
+			printf("%s\n\r", "Exc_Interrupt");
+			log_string("Exc_Interrupt");
 			break;
-		case Exc_FastInterrupt: log_string("Exc_FastInterrupt");
+		case Exc_FastInterrupt: 
+			printf("%s\n\r", "Exc_FastInterrupt");
+			log_string("Exc_FastInterrupt");
 			break;
-		default: log_string("Uknown!");
+		default: 
+			printf("%s\n\r", "Uknown exception!");
+			log_string("Uknown exception!");
 			break;				
 	}
 

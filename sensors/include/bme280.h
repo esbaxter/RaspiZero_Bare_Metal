@@ -52,4 +52,6 @@ Error_Returns bme280_print_compensated_values(BME280_id id);
 
 Error_Returns bme280_get_current_pressure(BME280_id id, double *pressure_ptr);
 
+Error_Returns bme280_get_current_temperature(BME280_id id, double *temperature_ptr);
+
 Error_Returns bme280_get_current_temperature_pressure(BME280_id id, double *temperature_ptr, double *pressure_ptr);

@@ -32,6 +32,13 @@
 #include <stdarg.h>
 #include "aux_peripherals.h"
 
+#define PAD_RIGHT 1
+#define PAD_ZERO 2
+/* the following should be enough for 32 bit int */
+#define PRINT_BUF_LEN 12
+#define PRINT_FLOAT_BUF_LEN 512
+#define PRINT_FLOAT_WIDTH 8
+
 static void printchar(char **str, int c)
 {
 	if (str) {
@@ -41,8 +48,6 @@ static void printchar(char **str, int c)
 	else (void)aux_putchar(c);
 }
 
-#define PAD_RIGHT 1
-#define PAD_ZERO 2
 
 static int prints(char **out, const char *string, int width, int pad)
 {
@@ -73,9 +78,6 @@ static int prints(char **out, const char *string, int width, int pad)
 
 	return pc;
 }
-
-/* the following should be enough for 32 bit int */
-#define PRINT_BUF_LEN 12
 
 static int printi(char **out, int i, int b, int sg, int width, int pad, int letbase)
 {
@@ -136,8 +138,6 @@ static int printi(char **out, int i, int b, int sg, int width, int pad, int letb
     *val = value;
     return exponent;
 }
-
-#define PRINT_FLOAT_BUF_LEN 512
 
 static int ftoa_fixed(char **out, double value, int width, int pad) 
 {  
@@ -239,7 +239,7 @@ static int print(char **out, const char *format, va_list args )
 				continue;
 			}
  			if( *format == 'f' ) {
-				width = 5;
+				width = PRINT_FLOAT_WIDTH;
 				pc += ftoa_fixed(out, va_arg( args, double ), width, pad);
 				continue;
 			} 

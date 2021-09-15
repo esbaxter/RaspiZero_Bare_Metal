@@ -54,7 +54,7 @@ int drone_control()
 	}
 	
 	log_string("Altitude test ready\n\r");
-	uint32_t count = 0;
+
 	while (1)
 	{
 		int32_t delta_cm;
@@ -63,17 +63,7 @@ int drone_control()
 		if (status == RPi_Success)
 		{
 			altitude_get_delta(&delta_cm);
-			printf("delta_cm: %d \n\r", (int)delta_cm);
-			if ((delta_cm > 5) ||  (delta_cm < -5))
-			{
-				count++;
-				printf("altitude reset: %u\n\r", (unsigned int)count);
-				if (altitude_reset() != RPi_Success)
-				{
-					log_string("altitude_reset failed");
-					break;
-				}
-			}
+			//printf("delta_cm: %d \n\r", (int)delta_cm);
 
 			log_string_plus("Quat w: ", (uint32_t)mpu_values.quat_w);
 			log_string_plus("Quat x: ", (uint32_t)mpu_values.quat_x);
@@ -93,6 +83,7 @@ int drone_control()
 			break;
 		}
 	}
+	
 	mpu6050_reset();
 	log_dump_buffer();
     return(0);

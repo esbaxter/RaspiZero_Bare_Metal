@@ -55,6 +55,7 @@ Note:  The conversion algorithms were taken directly from the BME 280 spec sheet
 #define BME280_SLEEP_MODE 0
 #define BME280_IIR_OFF_500MS_STANDBY 0x80
 #define BME280_HUMIDITY_1X	0x01
+#define BME280_HUMIDITY_OFF  0x00
 #define BME280_PRESS_TEMP_1X  0x27
 #define BME280_IIR_16_500MS_STANDBY 0x10
 #define BME280_PRESS8X_TEMP_1X	0x33
@@ -367,7 +368,7 @@ Error_Returns bme280_init(BME280_id id, BME280_mode mode)
 				
 				
 				buffer[0] = BME280_CTRL_HUMIDITY_REGISTER;
-				buffer[1] = BME280_HUMIDITY_1X;  //Humidity oversampling x1;
+				buffer[1] = BME280_HUMIDITY_OFF;  //No humidity measurements;
 				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 
@@ -434,6 +435,22 @@ Error_Returns bme280_get_current_temperature_pressure(BME280_id id, double *temp
 		if (to_return != RPi_Success) break;  //No need to continue, just return the error
 		*temperature_ptr = compensateTemperature(id, adc_T);	
 		*pressure_ptr = compensatePressure(id, adc_P);		
+	}  while(0);
+	return to_return;
+}
+
+Error_Returns bme280_get_current_temperature(BME280_id id, double *temperature_ptr)
+{
+	Error_Returns to_return = RPi_Success;
+	BME280_S32_t adc_P = 0;
+	BME280_S32_t adc_T = 0;
+	BME280_S32_t adc_H = 0;
+	
+	do
+	{
+		to_return = bme280_read_data(id, &adc_T, &adc_P, &adc_H);
+		if (to_return != RPi_Success) break;  //No need to continue, just return the error
+		*temperature_ptr = compensateTemperature(id, adc_T);		
 	}  while(0);
 	return to_return;
 }

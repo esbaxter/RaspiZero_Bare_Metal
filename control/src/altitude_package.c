@@ -31,11 +31,77 @@ and humidity chip.
 #include "arm_timer.h"
 #include <math.h>
 
+#define BME280_MEASUREMENT_ERROR .002
+#define BME280_INITIAL_ERROR_ESTIMATE 0.4
+#define BME280_CONVERGENCE_LOOP_COUNT 20
+
 #define MAGIC_EXPONENT				0.1902225603956629
 #define CENTIGRADE_TO_KELVIN		273.15 
 #define ATMOSPHERIC_LAPSE_RATE		0.000065  // This is in K/cm
 
+double fabs(double x);
+
+typedef struct Kalman_Data {
+	double measurement_error;
+	double estimate_error;	
+	double estimate;
+} Kalman_Filter_Data;
+
 static double base_pressure[BME280_NUMBER_SUPPORTED_DEVICES];
+static Kalman_Filter_Data kalman_filter_data[BME280_NUMBER_SUPPORTED_DEVICES];
+
+
+double updateEstimate(double measure, Kalman_Filter_Data *filter_data)
+{	
+	double kalman_gain = filter_data->estimate_error/(filter_data->estimate_error + filter_data->measurement_error);
+	filter_data->estimate = filter_data->estimate + (kalman_gain * (measure - filter_data->estimate));
+	filter_data->estimate_error = (1.0 - kalman_gain)*filter_data->estimate_error;
+	printf("%f,%f,%f,%f\n\r", measure, filter_data->estimate, kalman_gain, filter_data->estimate_error);
+	return filter_data->estimate;
+}
+
+Error_Returns getFilteredReadings(double *pressure_array)
+{
+	Error_Returns to_return = RPi_Success;
+	do
+	{
+		for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
+		{			
+			int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
+			to_return = bme280_get_current_pressure(bme280_id, &kalman_filter_data[bme280_offset].estimate);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("altitude_package: getFilteredReadings failed to get initialize pressure: ", to_return);
+				break;
+			}
+			kalman_filter_data[bme280_offset].measurement_error = BME280_MEASUREMENT_ERROR;
+			kalman_filter_data[bme280_offset].measurement_error = BME280_MEASUREMENT_ERROR;
+			kalman_filter_data[bme280_offset].estimate_error = BME280_INITIAL_ERROR_ESTIMATE;
+		}
+		
+		for(unsigned int counter = 0; counter < BME280_CONVERGENCE_LOOP_COUNT; counter++)
+		{
+			for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
+			{
+				int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
+				double raw;
+				to_return = bme280_get_current_pressure(bme280_id, &raw);
+				if (to_return != RPi_Success)
+				{
+					log_string_plus("altitude_package: getFilteredReadings failed: ", to_return);
+					break;
+				}
+				pressure_array[bme280_offset] = updateEstimate(raw, &kalman_filter_data[bme280_offset]);
+			}
+			if (to_return != RPi_Success)
+			{
+				break;
+			}
+			spin_wait_milliseconds(10);
+		}		
+	}while(0);
+	return to_return;
+}
 
 Error_Returns altitude_initialize()
 {
@@ -43,32 +109,29 @@ Error_Returns altitude_initialize()
 
 	do
 	{
-		to_return = bme280_init(bme280_one, bme280_altitude_mode);
-		if (to_return != RPi_Success)
+		//Initialize each BME 280
+		for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
 		{
-			log_string_plus("altitude_package: bme280_one bme280_init failed: ", to_return);
-			break;
-		}
-
-		to_return = bme280_get_current_pressure(bme280_one, &base_pressure[bme280_get_offset_from_id(bme280_one)]);
-		if (to_return != RPi_Success)
-		{
-			log_string_plus("altitude_package: bme280_one bme280_get_current_temperature_pressure failed: ", to_return);
-			break;
-		}
-
-		to_return = bme280_init(bme280_two, bme280_altitude_mode);
-		if (to_return != RPi_Success)
-		{
-			log_string_plus("altitude_package: bme280_two bme280_init failed: ", to_return);
-			break;
+			to_return = bme280_init(bme280_id, bme280_altitude_mode);
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("altitude_package: bme280_one bme280_init failed: ", to_return);
+				break;
+			}
 		}
 		
-		to_return = bme280_get_current_pressure(bme280_two, &base_pressure[bme280_get_offset_from_id(bme280_two)]);
-
+		if (to_return != RPi_Success)
+			{
+				break;
+			}
+			
+		//Find a stable value for the at rest pressure
+		to_return = getFilteredReadings(&base_pressure[0]);	
+		//printf("base pressures: %f,%f\n\r", base_pressure[0], base_pressure[1]);
+		printf("\n\r");
 		if (to_return != RPi_Success)
 		{
-			log_string_plus("altitude_package: bme280_two bme280_get_current_temperature_pressure failed: ", to_return);
+			log_string_plus("altitude_package: altitude_initialize failed to reset: ", to_return);
 			break;
 		}
 			
@@ -76,7 +139,7 @@ Error_Returns altitude_initialize()
 		if (to_return != RPi_Success)
 		{
 			log_string_plus("altitude_package: mpu6050_init failed: ", to_return);
-		}
+		}		
 		
 	} while(0);	
 	return to_return;
@@ -84,69 +147,56 @@ Error_Returns altitude_initialize()
 
 Error_Returns altitude_reset()
 {
-	Error_Returns to_return = RPi_Success;
-	do
-	{
-		to_return = bme280_get_current_pressure(bme280_one, &base_pressure[bme280_get_offset_from_id(bme280_one)]);
-		if (to_return != RPi_Success)
-		{
-			log_string_plus("altitude_package: altitude_reset bme280_one failed: ", to_return);
-			break;
-		}
-		
-		to_return = bme280_get_current_pressure(bme280_two, &base_pressure[bme280_get_offset_from_id(bme280_two)]);
-		if (to_return != RPi_Success)
-		{
-			log_string_plus("altitude_package: altitude_reset bme280_two failed: ", to_return);
-		}
-	} while(0);
-	return to_return;
+	return getFilteredReadings(&base_pressure[0]);
 }
 
 Error_Returns altitude_get_delta(int32_t *delta_cm_ptr)
 {
 	Error_Returns to_return = RPi_Success;
-	int32_t delta_cm_two = 0;
+	double altitude_average = 0.0;
 	
 	do
-	{
+	{		
 		double current_pressure[BME280_NUMBER_SUPPORTED_DEVICES];
-		double current_temp[BME280_NUMBER_SUPPORTED_DEVICES];
+		double altitude[BME280_NUMBER_SUPPORTED_DEVICES];
+		
+		to_return = getFilteredReadings(&current_pressure[0]);
+		printf("\n\r");
+		//printf("%f,%f\n\r", current_pressure[0], current_pressure[1]);
+		if (to_return != RPi_Success)
+		{
+			log_string_plus("altitude_package: getFilteredReadings failed while in altitude_get_delta: ", to_return);
+			break;
+		}
 		
 		for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
 		{
-			to_return = bme280_get_current_temperature_pressure(bme280_id, &current_temp[bme280_get_offset_from_id(bme280_id)], 
-				&current_pressure[bme280_get_offset_from_id(bme280_id)]);
+			double current_temperature;
+			int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
+			to_return = bme280_get_current_temperature(bme280_id, &current_temperature);
 			if (to_return != RPi_Success)
 			{
-				log_string_plus("altitude_package: bme280_one bme280_get_current_pressure_int failed: ", to_return);
+				log_string_plus("altitude_package: bme280_get_current_temperature failed: ", to_return);
 				break;
 			}
+			
+			/* Calculation is based on the hypsometric formula found here:
+			   https://keisan.casio.com/exec/system/1224585971
+			*/
+			altitude[bme280_offset] = (((pow(base_pressure[bme280_offset] / 
+				current_pressure[bme280_offset], MAGIC_EXPONENT) - 1) * 
+				(current_temperature + CENTIGRADE_TO_KELVIN)) / ATMOSPHERIC_LAPSE_RATE);
+			altitude_average += altitude[bme280_offset];
 		}
 		
 		if (to_return != RPi_Success)
 		{
-			log_string_plus("altitude_package: bme280_one bme280_get_current_pressure_int failed: ", to_return);
 			break;
 		}
 		
-		/* Calculation is based on the hypsometric formula found here:
-		   https://keisan.casio.com/exec/system/1224585971
-		*/
-		
-		*delta_cm_ptr = (int32_t)(((pow(base_pressure[bme280_get_offset_from_id(bme280_one)] / 
-		   current_pressure[bme280_get_offset_from_id(bme280_one)], MAGIC_EXPONENT) - 1) * 
-		   (current_temp[bme280_get_offset_from_id(bme280_one)] + CENTIGRADE_TO_KELVIN)) / ATMOSPHERIC_LAPSE_RATE);
-		
-		delta_cm_two = (int32_t)(((pow(base_pressure[bme280_get_offset_from_id(bme280_two)] / 
-		   current_pressure[bme280_get_offset_from_id(bme280_two)], MAGIC_EXPONENT) - 1) * 
-		   (current_temp[bme280_get_offset_from_id(bme280_two)] + CENTIGRADE_TO_KELVIN)) / ATMOSPHERIC_LAPSE_RATE);
-		
-		//TODO:  Implement a Kalman filter to take both readings and converge on an altitude.
-		//The BME 280 bounces around too much for this use...
-		
-		printf("delta cm 2: %d\n\r", (int)delta_cm_two);
-
+		altitude_average /= 2.0;
+		//printf("%f, %f, %f\n\r", altitude[0], altitude[1], altitude_average);
+		*delta_cm_ptr = (int32_t)altitude_average;
 	} while(0);
 	
 	return to_return;
