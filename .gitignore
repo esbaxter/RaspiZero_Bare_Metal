@@ -54,3 +54,10 @@ Mkfile.old
 dkms.conf
 drone_controller/src/drone_controller.list
 *.list
+.cproject
+.project
+*.xml
+.settings/org.eclipse.cdt.codan.core.prefs
+.settings/org.eclipse.cdt.core.prefs
+.settings/org.eclipse.embedcdt.managedbuild.cross.arm.core.prefs
+doc/~$sourceUtilization.docx
