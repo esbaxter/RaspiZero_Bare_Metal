@@ -19,7 +19,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 File:  bme280.h
 
-Interface into the support software for the BME 280 peripheral chip.
+Interface into the support software for the BME 280 humidity, temperature
+and barometric pressure chip.
 
 */
 
