@@ -1,5 +1,5 @@
 GCCINSTALLDIR = C:\Program Files (x86)\GNU Arm Embedded Toolchain\10 2020-q4-major
-PROJINCLUDES = -I..\..\include -I..\..\control\include -I..\..\BSP\include -I..\..\sensors\include -I..\..\utilities\include -I.\include
+PROJINCLUDES = -I..\..\include -I..\..\control\include -I..\..\BSP\include -I..\..\sensors\include -I..\..\utilities\include -I..\include
 OBJDIR = obj
 LIBDIR = ..\..\lib
 

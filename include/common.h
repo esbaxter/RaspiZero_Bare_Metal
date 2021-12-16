@@ -44,7 +44,9 @@ typedef enum {
 	GPIO_Pin_In_Use,
 	MPU6050_Memory_Out_Of_Bounds,
 	MPU6050_No_New_Data,
-	MPU6050_Data_Overflow
+	MPU6050_Data_Overflow,
+	PCA_9685_Insufficient_Device_Structures,
+	PCA_9685_Register_Access_Failure
 }  Error_Returns;
 
 typedef enum {

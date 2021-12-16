@@ -24,6 +24,8 @@ is definitely a work in progress...
 
 */
 
+#define PCA9685_ID 0x40
+
 #include <stdio.h>
 #include "common.h"
 #include "altitude_package.h"
@@ -31,12 +33,14 @@ is definitely a work in progress...
 
 #include "mpu6050.h"
 #include "aux_peripherals.h"
+#include "pca9685.h"
 
 int __errno = 0;
 
 int drone_control()
 {
     Error_Returns status = RPi_Success;
+    uint32_t pca_idx;
 	
 	log_indicate_system_ok();
 	
@@ -52,9 +56,17 @@ int drone_control()
 		log_string_plus("altitude_initialize failed: ", status);
 		log_indicate_system_error();
 	}
-	
-	log_string("Altitude test ready\n\r");
 
+	status = pca9685_init(PCA9685_ID, &pca_idx);
+	if (status != RPi_Success)
+	{
+		log_string_plus("pca9685_init failed: ", status);
+		log_dump_buffer();
+		log_indicate_system_error();
+	}
+
+	log_string("Altitude test ready\n\r");
+	log_dump_buffer();
 	while (1)
 	{
 		int32_t delta_cm;
