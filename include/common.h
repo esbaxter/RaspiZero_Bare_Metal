@@ -46,7 +46,8 @@ typedef enum {
 	MPU6050_No_New_Data,
 	MPU6050_Data_Overflow,
 	PCA_9685_Insufficient_Device_Structures,
-	PCA_9685_Register_Access_Failure
+	PCA_9685_Register_Access_Failure,
+	PCA_9685_Configuration_Error
 }  Error_Returns;
 
 typedef enum {

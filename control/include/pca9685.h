@@ -19,11 +19,27 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 File:  pca9685.h
 
-Interface into the support software for the NXP PWM chip.
+Interface into the support software for the NXP PWM chip being used as a servo
+controller.
 
 */
 
 #pragma once
 #include "common.h"
 
-Error_Returns pca9685_init(uint32_t i2c_id, uint32_t *pca9685_idx);
+typedef enum {
+	PCA_9685_Internal_Clock,
+	PCA_9685_External_Clock
+}  PCA9685_Clock_Source;
+
+//Note:  clk_frequency is ignored if PCA_9685_Internal_Clock is
+//selected
+Error_Returns pca9685_init(uint32_t i2c_id, PCA9685_Clock_Source clk_src,
+		uint32_t input_clk_frequency, uint32_t output_frequency, uint32_t *pca9685_idx);
+
+Error_Returns pca9685_register_servo(uint32_t pca9685_idx, uint32_t servo_channel,
+		uint32_t *servo_idx);
+
+//Move a given servo by setting up the PWM channel to the amount of time on
+Error_Returns pca9685_move_servo(uint32_t pca9685_idx, uint32_t servo_idx,
+		uint32_t active_pulse_width);

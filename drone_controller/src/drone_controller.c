@@ -34,6 +34,7 @@ is definitely a work in progress...
 #include "mpu6050.h"
 #include "aux_peripherals.h"
 #include "pca9685.h"
+#include "arm_timer.h"
 
 int __errno = 0;
 
@@ -41,6 +42,8 @@ int drone_control()
 {
     Error_Returns status = RPi_Success;
     uint32_t pca_idx;
+    uint32_t servo_idx1;
+    uint32_t servo_idx2;
 	
 	log_indicate_system_ok();
 	
@@ -57,7 +60,8 @@ int drone_control()
 		log_indicate_system_error();
 	}
 
-	status = pca9685_init(PCA9685_ID, &pca_idx);
+	status = pca9685_init(PCA9685_ID, PCA_9685_Internal_Clock,
+			0, 50, &pca_idx);
 	if (status != RPi_Success)
 	{
 		log_string_plus("pca9685_init failed: ", status);
@@ -65,6 +69,42 @@ int drone_control()
 		log_indicate_system_error();
 	}
 
+	status = pca9685_register_servo(pca_idx, 0, &servo_idx1);
+	if (status != RPi_Success)
+	{
+		log_string_plus("pca9685_register_servo 1 failed: ", status);
+		log_dump_buffer();
+		log_indicate_system_error();
+	}
+	status = pca9685_register_servo(pca_idx, 1, &servo_idx2);
+	if (status != RPi_Success)
+	{
+		log_string_plus("pca9685_register_servo 2 failed: ", status);
+		log_dump_buffer();
+		log_indicate_system_error();
+	}
+	for (uint32_t outer = 0; outer < 100; outer++)
+	{
+
+		for (uint32_t inner = 1000, inner2 = 2000; inner < 2000; inner += 25, inner2 -=25)
+		{
+			status = pca9685_move_servo(pca_idx, servo_idx1, inner);
+			if (status != RPi_Success)
+			{
+				log_string_plus("pca9685_move_servo 1 failed: ", status);
+				log_dump_buffer();
+				log_indicate_system_error();
+			}
+			status = pca9685_move_servo(pca_idx, servo_idx2, inner2);
+			if (status != RPi_Success)
+			{
+				log_string_plus("pca9685_move_servo 2 failed: ", status);
+				log_dump_buffer();
+				log_indicate_system_error();
+			}
+			spin_wait_milliseconds(50);
+		}
+	}
 	log_string("Altitude test ready\n\r");
 	log_dump_buffer();
 	while (1)
