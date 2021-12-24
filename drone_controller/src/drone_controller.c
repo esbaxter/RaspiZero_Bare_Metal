@@ -53,13 +53,14 @@ int drone_control()
 		log_indicate_system_error();
 	}
 
+#if 0
 	status = altitude_initialize();
 	if (status != RPi_Success)
 	{
 		log_string_plus("altitude_initialize failed: ", status);
 		log_indicate_system_error();
 	}
-
+#endif
 	status = pca9685_init(PCA9685_ID, PCA_9685_Internal_Clock,
 			0, 50, &pca_idx);
 	if (status != RPi_Success)
@@ -86,7 +87,7 @@ int drone_control()
 	for (uint32_t outer = 0; outer < 100; outer++)
 	{
 
-		for (uint32_t inner = 1000, inner2 = 2000; inner < 2000; inner += 25, inner2 -=25)
+		for (uint32_t inner = 1000, inner2 = 2000; inner < 2000; inner += 10, inner2 -=10)
 		{
 			status = pca9685_move_servo(pca_idx, servo_idx1, inner);
 			if (status != RPi_Success)
@@ -102,7 +103,7 @@ int drone_control()
 				log_dump_buffer();
 				log_indicate_system_error();
 			}
-			spin_wait_milliseconds(50);
+			spin_wait_milliseconds(500);
 		}
 	}
 	log_string("Altitude test ready\n\r");

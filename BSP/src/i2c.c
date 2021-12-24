@@ -178,6 +178,8 @@ Error_Returns i2c_write(uint32_t slave_address, unsigned char *data,
 
 	do
 	{
+		//TODO:  Need to rework this to have a deadman counter.  Have seen a few instances
+		//where with my sketchy breadboard setup the I2C bus hangs on a write.
 		while(!(bsc1_registers->bsc_status & (BSC_STATUS_CLKT | BSC_STATUS_ERR | BSC_STATUS_DONE)))
 		{
 			while(count < number_bytes && bsc1_registers->bsc_status & BSC_STATUS_TXD)

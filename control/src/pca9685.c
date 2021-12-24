@@ -281,9 +281,6 @@ Error_Returns pca9685_move_servo(uint32_t pca9685_idx, uint32_t servo_idx,
 		buffer[0] = PCA9685_FIRST_SERVO_CONTROL_REG + (PCA9685_CONTROL_REGS_PER_CHANNEL *
 				pca_configuration_params[pca9685_idx].servos[servo_idx].channel_id);
 
-		printf("channel %u signal_low %u\n\r", (unsigned int)pca_configuration_params[pca9685_idx].servos[servo_idx].channel_id,
-				(unsigned int)signal_low_ticks);
-
 		//Active pulse starts at the beginning of the output cycle
 		buffer[1] = 0;
 		buffer[2] = 0;
@@ -291,7 +288,6 @@ Error_Returns pca9685_move_servo(uint32_t pca9685_idx, uint32_t servo_idx,
 		buffer[4] = (signal_low_ticks >> 8) && 0xFF;
 		to_return = pca9685_write(pca_configuration_params[pca9685_idx].i2c_id,
 				buffer, PCA9685_MOVE_SERVO_BUFFER_SIZE);
-		printf("Write: %u\n\r", (unsigned int)to_return);
 		if (to_return != RPi_Success)
 		{
 			log_string_plus("pca9685_move_servo():  Set high/low register write failed:  ", to_return);
