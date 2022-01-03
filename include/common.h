@@ -38,6 +38,7 @@ typedef enum {
 	RPi_InvalidParam,
 	RPi_InUse,
 	RPi_OperationFailed,
+	RPi_InsufficientResources,
 	I2CS_Ack_Error,
     I2CS_Data_Loss,
     I2CS_Clock_Timeout,
