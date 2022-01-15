@@ -65,13 +65,13 @@ int drone_control()
 	log_dump_buffer();
 	while (1)
 	{
-		int32_t delta_cm;
+		double delta_cm;
+		spin_wait_milliseconds(50);
 		MPU6050_Accel_Gyro_Values mpu_values; 
 		status = mpu6050_retrieve_values(&mpu_values);
 		if (status == RPi_Success)
 		{
 			altitude_get_delta(&delta_cm);
-			//printf("delta_cm: %d \n\r", (int)delta_cm);
 
 			log_string_plus("Quat w: ", (uint32_t)mpu_values.quat_w);
 			log_string_plus("Quat x: ", (uint32_t)mpu_values.quat_x);

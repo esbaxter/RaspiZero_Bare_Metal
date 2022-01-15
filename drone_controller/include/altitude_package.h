@@ -26,4 +26,4 @@ Error_Returns altitude_initialize();
 
 Error_Returns altitude_reset();
 
-Error_Returns altitude_get_delta(int32_t *delta_cm_ptr);
+Error_Returns altitude_get_delta(double *delta_cm_ptr);

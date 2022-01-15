@@ -30,6 +30,7 @@ language code for CPU operations.
 
 #define NULL_PTR 0
 #define SVC_INITIAL_STACK 0x8000000
+#define	BITS_IN_BYTE	8
 
 typedef enum {
 	RPi_Success,

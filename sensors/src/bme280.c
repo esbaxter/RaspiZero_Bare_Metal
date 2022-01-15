@@ -62,6 +62,12 @@ Note:  The conversion algorithms were taken directly from the BME 280 spec sheet
 #define BME280_PRESS16X_TEMP_2X 0x53
 
 #define TIME_DELAY 900000
+#define BME280_STATUS_READ_ATTEMPTS	10
+#define BME280_UPPER_WORD_MASK		12
+#define BME280_MIDDLE_WORD_MASK		4
+#define BME280_IIR_ENABLED_MASK		4
+#define BME280_IIR_DISABLED_1X_SAMPLING_MASK	0
+#define BME280_REGISTER_BIT_SIZE	8
 
 typedef struct Comp_Params {
 	unsigned short dig_T1;
@@ -91,6 +97,8 @@ typedef struct Comp_Params {
 static Compensation_Parameters bme280_compensation_params[BME280_NUMBER_SUPPORTED_DEVICES];
 
 static unsigned char bme280_ready = 0;
+
+static uint32_t pressure_temperature_xlsb_mask = 0;
 
 static Error_Returns bme280_write(BME280_id id, unsigned char *buffer, unsigned int tx_bytes)
 {
@@ -181,10 +189,21 @@ static double compensateHumidity(BME280_id id, int32_t adc_H)
   return var_h;
 }
 
+static void bme280_extract_long_data(unsigned char *buffer, BME280_S32_t *data_ptr)
+{
+	unsigned int data_xlsb = 0;
+	unsigned int data_lsb = 0;
+	unsigned int data_msb = 0;
+
+	data_msb = (unsigned int)buffer[0] << BME280_UPPER_WORD_MASK;
+	data_lsb = (unsigned int)buffer[1] << BME280_MIDDLE_WORD_MASK;
+	data_xlsb = (unsigned int)buffer[2] >> pressure_temperature_xlsb_mask;
+	*data_ptr = data_msb | data_lsb | data_xlsb;
+}
+
 static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME280_S32_t *adc_P_ptr, BME280_S32_t *adc_H_ptr)
 {
 	Error_Returns to_return = RPi_NotInitialized;
-	unsigned int data_xlsb = 0;
     unsigned int data_lsb = 0;
     unsigned int data_msb = 0;
 	
@@ -203,9 +222,9 @@ static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME
 				++status_attempts;
 				if (buffer[0] & 0x08)
 					spin_wait(TIME_DELAY);
-			} while(((status_attempts < 5) && (buffer[0] & 0x08)) && (to_return == RPi_Success));
+			} while(((status_attempts < BME280_STATUS_READ_ATTEMPTS) && (buffer[0] & 0x08)) && (to_return == RPi_Success));
 			
-			if ((status_attempts == 5) || (to_return != RPi_Success))
+			if ((status_attempts == BME280_STATUS_READ_ATTEMPTS) || (to_return != RPi_Success))
 			{
 				log_string("Error:  BME280, too many status register reads showed measuring");
 				break;
@@ -218,16 +237,10 @@ static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME
 			if (to_return != RPi_Success) break;  //No need to continue, just return the error
 
 		   /* Store the parsed register values for pressure data */
-			data_msb = (unsigned int)buffer[0] << 12;
-			data_lsb = (unsigned int)buffer[1] << 4;
-			data_xlsb = (unsigned int)buffer[2] >> 4;
-			*adc_P_ptr = data_msb | data_lsb | data_xlsb;
+			bme280_extract_long_data(&buffer[0], adc_P_ptr);
 
 			/* Store the parsed register values for temperature data */
-			data_msb = (unsigned int)buffer[3] << 12;
-			data_lsb = (unsigned int)buffer[4] << 4;
-			data_xlsb = (unsigned int)buffer[5] >> 4;
-			*adc_T_ptr = data_msb | data_lsb | data_xlsb;
+			bme280_extract_long_data(&buffer[3], adc_T_ptr);
 			
 			/* Store the parsed register values for humidity data */
 			data_msb = (unsigned int)buffer[6] << 8;
@@ -351,6 +364,7 @@ Error_Returns bme280_init(BME280_id id, BME280_mode mode)
 				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return
 				 
+				pressure_temperature_xlsb_mask = BME280_IIR_DISABLED_1X_SAMPLING_MASK;
 				bme280_ready = 1;
 				break;
 			}
@@ -378,6 +392,7 @@ Error_Returns bme280_init(BME280_id id, BME280_mode mode)
 				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
 				if (to_return != RPi_Success) break; //Don't continue just return			
 				
+				pressure_temperature_xlsb_mask = BME280_IIR_ENABLED_MASK;
 				bme280_ready = 1;
 				break;
 			}
