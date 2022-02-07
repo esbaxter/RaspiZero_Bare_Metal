@@ -332,3 +332,24 @@ void log_dump_buffer(void)
 		} while (interrupt_log_buffer[buffer_read_index] != 0);
 	}
 }
+
+void log_dump_and_clear(void)
+{
+	log_dump_buffer();
+
+	/* This is sort of dangerous since we aren't disabling
+	 * interrupts and we are messing with the interrupt
+	 * buffer indices.
+	 */
+
+	for (uint32_t index = 0; index < LOG_BUFFER_SIZE; index++)
+		{
+		log_buffer[index] = 0;
+		interrupt_log_buffer[index] = 0;
+		}
+	buffer_rolled_over = 0;
+	buffer_write_index = 0;
+
+	interrupt_buffer_rolled_over = 0;
+	interrupt_buffer_write_index = 0;
+}

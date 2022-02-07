@@ -58,8 +58,10 @@ Note:  The conversion algorithms were taken directly from the BME 280 spec sheet
 #define BME280_HUMIDITY_OFF  0x00
 #define BME280_PRESS_TEMP_1X  0x27
 #define BME280_IIR_16_500MS_STANDBY 0x10
+#define BME280_NO_IIR_16_500MS_STANDBY 0x0
 #define BME280_PRESS8X_TEMP_1X	0x33
 #define BME280_PRESS16X_TEMP_2X 0x53
+#define BME280_PRESS1X_TEMP_1X 0x27  //TODO:  Double check!
 
 #define TIME_DELAY 900000
 #define BME280_STATUS_READ_ATTEMPTS	10
@@ -224,12 +226,17 @@ static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME
 					spin_wait(TIME_DELAY);
 			} while(((status_attempts < BME280_STATUS_READ_ATTEMPTS) && (buffer[0] & 0x08)) && (to_return == RPi_Success));
 			
-			if ((status_attempts == BME280_STATUS_READ_ATTEMPTS) || (to_return != RPi_Success))
+			if (status_attempts == BME280_STATUS_READ_ATTEMPTS)
 			{
-				log_string("Error:  BME280, too many status register reads showed measuring");
+				log_string("bme280_read_data:  Too many status register reads showed measuring");
 				break;
 			}
 			
+			if (to_return != RPi_Success)
+			{
+				log_string_plus("bme280_read_data:  bme280_read returned error: ", to_return);
+			}
+
 			for(index = 0;index < BME280_DATA_REGISTER_SIZE; index++) buffer[index] = 0;
 			
 			buffer[0] = BME280_FIRST_DATA_REGISTER;
@@ -394,6 +401,40 @@ Error_Returns bme280_init(BME280_id id, BME280_mode mode)
 				
 				pressure_temperature_xlsb_mask = BME280_IIR_ENABLED_MASK;
 				bme280_ready = 1;
+				break;
+			}
+			case bme280_kalman_filter_mode:
+			{
+				buffer[0] = BME280_CTRL_MEASURE_REGISTER;
+				buffer[1] = BME280_SLEEP_MODE; //Need to set up config in sleep mode
+				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
+				if (to_return != RPi_Success) break; //Don't continue just return
+
+				buffer[0] = BME280_CTRL_CONFIG_REGISTER;
+				buffer[1] = BME280_NO_IIR_16_500MS_STANDBY; //4 wire SPI, IIR 16, .5 ms standby time
+				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
+				if (to_return != RPi_Success) break; //Don't continue just return
+
+
+				buffer[0] = BME280_CTRL_HUMIDITY_REGISTER;
+				buffer[1] = BME280_HUMIDITY_OFF;  //No humidity measurements;
+				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
+				if (to_return != RPi_Success) break; //Don't continue just return
+
+				buffer[0] = BME280_CTRL_MEASURE_REGISTER;
+				//Pressure oversample x16, temp oversample x2, normal mode
+				buffer[1] = BME280_PRESS1X_TEMP_1X;
+				to_return = bme280_write(id, buffer, BME280_CTRL_REGISTER_WRITE_SIZE);
+				if (to_return != RPi_Success) break; //Don't continue just return
+
+				pressure_temperature_xlsb_mask = BME280_IIR_ENABLED_MASK;
+				bme280_ready = 1;
+				break;
+			}
+			default:
+			{
+				log_string("Error:  BME280_init:  Unknown mode");
+				to_return = RPi_InvalidParam;
 				break;
 			}
 		}

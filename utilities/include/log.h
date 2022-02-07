@@ -44,6 +44,8 @@ void log_interrupt_string(const char *log_string);
 
 void log_dump_buffer(void);
 
+void log_dump_and_clear(void);
+
 char log_getchar(void);
 
 void log_putchar(char c);

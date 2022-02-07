@@ -35,7 +35,8 @@ typedef long long signed int BME280_S64_t;
 
 typedef enum {
 	bme280_temp_pressure_humidity,
-	bme280_altitude_mode
+	bme280_altitude_mode,
+	bme280_kalman_filter_mode
 } BME280_mode;
 
 typedef enum {

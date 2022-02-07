@@ -62,17 +62,24 @@ int drone_control()
 	}
 
 	log_string("Altitude test ready\n\r");
-	log_dump_buffer();
+	//log_dump_buffer();
 	while (1)
 	{
 		double delta_cm;
-		spin_wait_milliseconds(50);
-		MPU6050_Accel_Gyro_Values mpu_values; 
-		status = mpu6050_retrieve_values(&mpu_values);
+		spin_wait_milliseconds(100);
+		//MPU6050_Accel_Gyro_Values mpu_values;
+		status = altitude_get_delta(&delta_cm);
+
+		if (status != RPi_Success)
+		{
+			log_string("altitude_get_delta failed!");
+			break;
+		}
+
+		printf("delta_cm: %f\n\r", delta_cm);
+		/*status = mpu6050_retrieve_values(&mpu_values);
 		if (status == RPi_Success)
 		{
-			altitude_get_delta(&delta_cm);
-
 			log_string_plus("Quat w: ", (uint32_t)mpu_values.quat_w);
 			log_string_plus("Quat x: ", (uint32_t)mpu_values.quat_x);
 			log_string_plus("Quat y: ", (uint32_t)mpu_values.quat_y);
@@ -82,7 +89,7 @@ int drone_control()
 		{
 			log_string("MPU data overflow, aborting...");
 			break;
-		}
+		}*/
 
 		char tty_char = log_getchar();
 		if (tty_char == 'd')
