@@ -62,13 +62,13 @@ int drone_control()
 	}
 
 	log_string("Altitude test ready\n\r");
-	//log_dump_buffer();
+
 	while (1)
 	{
-		double delta_cm;
-		spin_wait_milliseconds(100);
+		double delta_meter;
+		spin_wait_milliseconds(150);
 		//MPU6050_Accel_Gyro_Values mpu_values;
-		status = altitude_get_delta(&delta_cm);
+		status = altitude_get_delta(&delta_meter);
 
 		if (status != RPi_Success)
 		{
@@ -76,7 +76,7 @@ int drone_control()
 			break;
 		}
 
-		printf("delta_cm: %f\n\r", delta_cm);
+		printf("delta_meter: %f\n\r", delta_meter);
 		/*status = mpu6050_retrieve_values(&mpu_values);
 		if (status == RPi_Success)
 		{
