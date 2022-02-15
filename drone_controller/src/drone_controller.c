@@ -97,6 +97,10 @@ int drone_control()
 			log_string("See ya!");
 			break;
 		}
+		else if (tty_char == 'r')
+		{
+			status = altitude_reset();
+		}
 	}
 	
 	mpu6050_reset();

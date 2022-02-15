@@ -43,7 +43,7 @@ Note:  The conversion algorithms were taken directly from the BME 280 spec sheet
 #define BME280_CHIP_RPi_REGISTER 0xD0
 #define BME280_CHIP_RESET_REGISTER 0xE0
 #define BME280_CTRL_HUMIDITY_REGISTER 0xF2
-#define BME280_STATUS_REGISTER 0xF2
+#define BME280_STATUS_REGISTER 0xF3
 #define BME280_CTRL_MEASURE_REGISTER 0xF4
 #define BME280_CTRL_CONFIG_REGISTER 0xF5
 #define BME280_FIRST_DATA_REGISTER 0xF7
@@ -61,7 +61,9 @@ Note:  The conversion algorithms were taken directly from the BME 280 spec sheet
 #define BME280_NO_IIR_16_500MS_STANDBY 0x0
 #define BME280_PRESS8X_TEMP_1X	0x33
 #define BME280_PRESS16X_TEMP_2X 0x53
-#define BME280_PRESS1X_TEMP_1X 0x27  //TODO:  Double check!
+#define BME280_PRESS1X_TEMP_1X 0x27
+
+#define BME280_STATUS_MEASURING_BIT	3
 
 #define TIME_DELAY 900000
 #define BME280_STATUS_READ_ATTEMPTS	10
@@ -102,6 +104,7 @@ static unsigned char bme280_ready = 0;
 
 static uint32_t pressure_temperature_xlsb_mask = 0;
 
+//Communication routine with the BME 280 depending on how it is wired
 static Error_Returns bme280_write(BME280_id id, unsigned char *buffer, unsigned int tx_bytes)
 {
 	Error_Returns to_return = RPi_Success;
@@ -115,6 +118,7 @@ static Error_Returns bme280_write(BME280_id id, unsigned char *buffer, unsigned 
 	return to_return;
 }
 
+//Communication routine with the BME 280 depending on how it is wired
 static Error_Returns bme280_read(BME280_id id, unsigned char *buffer, unsigned int rx_bytes)
 {
 	Error_Returns to_return = RPi_Success;
@@ -131,6 +135,7 @@ static Error_Returns bme280_read(BME280_id id, unsigned char *buffer, unsigned i
 	return to_return;
 }
 
+//Taken straight from the Bosch manual.
 static double compensateTemperature(BME280_id id, int32_t adc_T)
 {
   double v_x1_u32;
@@ -146,6 +151,7 @@ static double compensateTemperature(BME280_id id, int32_t adc_T)
   return temperature;
 }
 
+//Taken straight from the Bosch manual.
 static double compensatePressure(BME280_id id, int32_t adc_P)
 {
   double v_x1_u32;
@@ -171,6 +177,7 @@ static double compensatePressure(BME280_id id, int32_t adc_P)
   return pressure;
 }
 
+//Taken straight from the Bosch manual.
 static double compensateHumidity(BME280_id id, int32_t adc_H)
 {
   double var_h;
@@ -203,6 +210,7 @@ static void bme280_extract_long_data(unsigned char *buffer, BME280_S32_t *data_p
 	*data_ptr = data_msb | data_lsb | data_xlsb;
 }
 
+//Read all the data from the chip
 static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME280_S32_t *adc_P_ptr, BME280_S32_t *adc_H_ptr)
 {
 	Error_Returns to_return = RPi_NotInitialized;
@@ -211,32 +219,12 @@ static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME
 	
 	unsigned char buffer[BME280_DATA_REGISTER_SIZE];
 	unsigned int index = 0;
-	unsigned int status_attempts = 0;
+	//unsigned int status_attempts = 0;
 	
 	if (bme280_ready)
 	{
 		do
 		{
-			do
-			{
-				buffer[0] = BME280_STATUS_REGISTER;
-				to_return = bme280_read(id, buffer, 1);
-				++status_attempts;
-				if (buffer[0] & 0x08)
-					spin_wait(TIME_DELAY);
-			} while(((status_attempts < BME280_STATUS_READ_ATTEMPTS) && (buffer[0] & 0x08)) && (to_return == RPi_Success));
-			
-			if (status_attempts == BME280_STATUS_READ_ATTEMPTS)
-			{
-				log_string("bme280_read_data:  Too many status register reads showed measuring");
-				break;
-			}
-			
-			if (to_return != RPi_Success)
-			{
-				log_string_plus("bme280_read_data:  bme280_read returned error: ", to_return);
-			}
-
 			for(index = 0;index < BME280_DATA_REGISTER_SIZE; index++) buffer[index] = 0;
 			
 			buffer[0] = BME280_FIRST_DATA_REGISTER;
