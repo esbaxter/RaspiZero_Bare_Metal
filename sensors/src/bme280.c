@@ -105,44 +105,45 @@ static unsigned char bme280_ready = 0;
 static uint32_t pressure_temperature_xlsb_mask = 0;
 
 //Communication routine with the BME 280 depending on how it is wired
-static Error_Returns bme280_write(BME280_id id, unsigned char *buffer, unsigned int tx_bytes)
-{
-	Error_Returns to_return = RPi_Success;
+static Error_Returns bme280_write(uint32_t id, unsigned char *buffer, unsigned int tx_bytes)
 #ifndef SPI_MODE
-	to_return = i2c_write(id, buffer, tx_bytes);
-#else
-	buffer[0] &= 0x7F;  //Most significant bit must be zero to specify write to BME280
-	to_return = spi_write(spi_ce_zero, spi_cpol_low, spi_cpha_middle,
-	  spi_cpol_low, buffer, tx_bytes);
-#endif
-	return to_return;
+{
+	return i2c_write(id + I2C_FIRST_SLAVE_ADDRESS, buffer, tx_bytes);
 }
+#else
+{
+	buffer[0] &= 0x7F;  //Most significant bit must be zero to specify write to BME280
+
+	return spi_write(spi_ce_zero + id, spi_cpol_low, spi_cpha_middle,
+			  spi_cpol_low, buffer, tx_bytes);
+}
+#endif
 
 //Communication routine with the BME 280 depending on how it is wired
-static Error_Returns bme280_read(BME280_id id, unsigned char *buffer, unsigned int rx_bytes)
+static Error_Returns bme280_read(uint32_t id, unsigned char *buffer, unsigned int rx_bytes)
 {
 	Error_Returns to_return = RPi_Success;
 #ifndef SPI_MODE
-	to_return = i2c_write(id, buffer, 1);
+	to_return = i2c_write(id + I2C_FIRST_SLAVE_ADDRESS, buffer, 1);
 	if (to_return == RPi_Success)
 	{
-		to_return = i2c_read(id, buffer, rx_bytes);
+		to_return = i2c_read(id + I2C_FIRST_SLAVE_ADDRESS, buffer, rx_bytes);
 	}
 #else
-	to_return = spi_read(spi_ce_zero, spi_cpol_low, spi_cpha_middle,
+	to_return = spi_read(spi_ce_zero + id, spi_cpol_low, spi_cpha_middle,
 	  spi_cpol_low, buffer, rx_bytes);
 #endif
 	return to_return;
 }
 
 //Taken straight from the Bosch manual.
-static double compensateTemperature(BME280_id id, int32_t adc_T)
+static double compensateTemperature(uint32_t id, int32_t adc_T)
 {
   double v_x1_u32;
   double v_x2_u32;
   double temperature;
   
-  Compensation_Parameters *params_ptr = &bme280_compensation_params[bme280_get_offset_from_id(id)];
+  Compensation_Parameters *params_ptr = &bme280_compensation_params[id];
   
   v_x1_u32  = (((double)adc_T) / 16384.0 - ((double)params_ptr->dig_T1) / 1024.0) * ((double)params_ptr->dig_T2);
   v_x2_u32  = ((((double)adc_T) / 131072.0 - ((double)params_ptr->dig_T1) / 8192.0) * (((double)adc_T) / 131072.0 - ((double)params_ptr->dig_T1) / 8192.0)) * ((double)params_ptr->dig_T3);
@@ -152,13 +153,13 @@ static double compensateTemperature(BME280_id id, int32_t adc_T)
 }
 
 //Taken straight from the Bosch manual.
-static double compensatePressure(BME280_id id, int32_t adc_P)
+static double compensatePressure(uint32_t id, int32_t adc_P)
 {
   double v_x1_u32;
   double v_x2_u32;
   double pressure;
   
-  Compensation_Parameters *params_ptr = &bme280_compensation_params[bme280_get_offset_from_id(id)];
+  Compensation_Parameters *params_ptr = &bme280_compensation_params[id];
   
   v_x1_u32 = ((double)params_ptr->t_fine / 2.0) - 64000.0;
   v_x2_u32 = v_x1_u32 * v_x1_u32 * ((double)params_ptr->dig_P6) / 32768.0;
@@ -178,11 +179,11 @@ static double compensatePressure(BME280_id id, int32_t adc_P)
 }
 
 //Taken straight from the Bosch manual.
-static double compensateHumidity(BME280_id id, int32_t adc_H)
+static double compensateHumidity(uint32_t id, int32_t adc_H)
 {
   double var_h;
   
-  Compensation_Parameters *params_ptr = &bme280_compensation_params[bme280_get_offset_from_id(id)];
+  Compensation_Parameters *params_ptr = &bme280_compensation_params[id];
   
   var_h = (((double)params_ptr->t_fine) - 76800.0);
   if (var_h != 0)
@@ -211,7 +212,7 @@ static void bme280_extract_long_data(unsigned char *buffer, BME280_S32_t *data_p
 }
 
 //Read all the data from the chip
-static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME280_S32_t *adc_P_ptr, BME280_S32_t *adc_H_ptr)
+static Error_Returns bme280_read_data(uint32_t id, BME280_S32_t *adc_T_ptr, BME280_S32_t *adc_P_ptr, BME280_S32_t *adc_H_ptr)
 {
 	Error_Returns to_return = RPi_NotInitialized;
     unsigned int data_lsb = 0;
@@ -247,18 +248,13 @@ static Error_Returns bme280_read_data(BME280_id id, BME280_S32_t *adc_T_ptr, BME
 	return to_return;
 }
 
-int32_t bme280_get_offset_from_id(BME280_id id)
-{
-	return (id - I2C_FIRST_SLAVE_ADDRESS);
-}
-
-Error_Returns bme280_init(BME280_id id, BME280_mode mode)
+Error_Returns bme280_init(uint32_t id, BME280_mode mode)
 {	
 	Error_Returns to_return = RPi_Success;
 	unsigned char buffer[BME280_TRIM_PARAMETER_BYTES];
 	unsigned int index = 0;
 	
-	Compensation_Parameters *params_ptr = &bme280_compensation_params[bme280_get_offset_from_id(id)];
+	Compensation_Parameters *params_ptr = &bme280_compensation_params[id];
 	
 	do
 	{	
@@ -272,7 +268,11 @@ Error_Returns bme280_init(BME280_id id, BME280_mode mode)
 		
 		buffer[0] = BME280_CHIP_RPi_REGISTER;
 		to_return = bme280_read(id, buffer, 1);
-		if (to_return != RPi_Success) break;  //No need to continue just return the failure
+		if (to_return != RPi_Success)
+			{
+			log_string_plus("bme280_init():  Error reading chip ID read was ", to_return);
+			break;  //No need to continue just return the failure
+			}
 		if (buffer[0] != BME280_CHIP_ID)
 		{
 			log_string_plus("bme280_init():  Error chip ID read was ", buffer[0]);
@@ -432,7 +432,7 @@ Error_Returns bme280_init(BME280_id id, BME280_mode mode)
 	return to_return;
 }
 
-Error_Returns bme280_reset(BME280_id id)
+Error_Returns bme280_reset(uint32_t id)
 {
 	Error_Returns to_return = RPi_NotInitialized;
 	unsigned char buffer[BME280_CTRL_REGISTER_WRITE_SIZE];
@@ -446,7 +446,7 @@ Error_Returns bme280_reset(BME280_id id)
 	return to_return;
 }
 
-Error_Returns bme280_print_compensated_values(BME280_id id)
+Error_Returns bme280_print_compensated_values(uint32_t id)
 {
 	Error_Returns to_return = RPi_Success;
 	BME280_S32_t adc_P = 0;
@@ -466,7 +466,7 @@ Error_Returns bme280_print_compensated_values(BME280_id id)
 	return to_return;
 }
 
-Error_Returns bme280_get_current_temperature_pressure(BME280_id id, double *temperature_ptr, double *pressure_ptr)
+Error_Returns bme280_get_current_temperature_pressure(uint32_t id, double *temperature_ptr, double *pressure_ptr)
 {
 	Error_Returns to_return = RPi_Success;
 	BME280_S32_t adc_P = 0;
@@ -483,7 +483,7 @@ Error_Returns bme280_get_current_temperature_pressure(BME280_id id, double *temp
 	return to_return;
 }
 
-Error_Returns bme280_get_current_temperature(BME280_id id, double *temperature_ptr)
+Error_Returns bme280_get_current_temperature(uint32_t id, double *temperature_ptr)
 {
 	Error_Returns to_return = RPi_Success;
 	BME280_S32_t adc_P = 0;
@@ -499,7 +499,7 @@ Error_Returns bme280_get_current_temperature(BME280_id id, double *temperature_p
 	return to_return;
 }
 
-Error_Returns bme280_get_current_pressure(BME280_id id, double *pressure_ptr)
+Error_Returns bme280_get_current_pressure(uint32_t id, double *pressure_ptr)
 {
 	Error_Returns to_return = RPi_Success;
 	BME280_S32_t adc_P = 0;

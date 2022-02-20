@@ -39,21 +39,14 @@ typedef enum {
 	bme280_kalman_filter_mode
 } BME280_mode;
 
-typedef enum {
-	bme280_one = 0x76,
-	bme280_two = 0x77
-} BME280_id;
+Error_Returns bme280_init(uint32_t id, BME280_mode mode);
 
-int32_t bme280_get_offset_from_id(BME280_id id);
+Error_Returns bme280_reset(uint32_t id);
 
-Error_Returns bme280_init(BME280_id id, BME280_mode mode);
+Error_Returns bme280_print_compensated_values(uint32_t id);
 
-Error_Returns bme280_reset(BME280_id id);
+Error_Returns bme280_get_current_pressure(uint32_t id, double *pressure_ptr);
 
-Error_Returns bme280_print_compensated_values(BME280_id id);
+Error_Returns bme280_get_current_temperature(uint32_t id, double *temperature_ptr);
 
-Error_Returns bme280_get_current_pressure(BME280_id id, double *pressure_ptr);
-
-Error_Returns bme280_get_current_temperature(BME280_id id, double *temperature_ptr);
-
-Error_Returns bme280_get_current_temperature_pressure(BME280_id id, double *temperature_ptr, double *pressure_ptr);
+Error_Returns bme280_get_current_temperature_pressure(uint32_t id, double *temperature_ptr, double *pressure_ptr);

@@ -22,6 +22,18 @@ File:  altitude_package.c
 Implements an altitude and position tracking function using the Bosch BME 280
 temperature, pressure and humidity chip and the MPU 6050.
 
+So the idea behind this was to use the BME 280 chip, grab a base pressure reading
+and then at a given time interval grab an update pressure reading, compare the
+two using a rearrangement of the barometric formula to get a change in altitude.
+
+Unfortunately, the specs on the BME 280 are nice for gross altitude change
+calculations, however, I was aiming for 1-2 cm of accuracy.  The best it appears I
+can get from the chip is .12 hPa relative accuracy which equates to 1 meter.
+
+So I implemented a Kalman filter (well, two of them actually) for the actual pressure
+readings and the calculated altitude change.  It works somewhat but still not accurate
+enough for what I was looking for.
+
 */
 
 #include "altitude_package.h"
@@ -38,10 +50,10 @@ temperature, pressure and humidity chip and the MPU 6050.
 #define BME280_Q_FACTOR					0.01
 #define BME280_CONVERGENCE_LOOP_COUNT 	10
 
-#define MAGIC_EXPONENT				0.1902225603956629
+#define MAGIC_EXPONENT				0.1902225603956629  //Basically 1/5.22
 #define MAGIC_MULTIPLIER			44330
 
-#define ALTITUDE_MEASUREMENT_ERROR		0.02
+#define ALTITUDE_MEASUREMENT_ERROR		1.0
 #define ALTITUDE_INITIAL_ESTIMATE_ERROR	1.0
 #define ALTITUDE_INITIAL_KALMAN_GAIN	1.0
 #define ALTITUDE_Q_FACTOR				0.01
@@ -97,14 +109,15 @@ static void update_estimate(double measure, Kalman_Filter_Data *filter_data)
 	return;
 }
 
+//Update the Kalman filter for each enabled BME 280.
+
 static Error_Returns get_filtered_readings()
 {
 	Error_Returns to_return = RPi_Success;
 	do
 	{
-		for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
+		for(uint32_t bme280_id = 0; bme280_id < BME280_NUMBER_SUPPORTED_DEVICES; bme280_id++)
 		{
-			int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
 			double raw_pressure;
 			to_return = bme280_get_current_pressure(bme280_id, &raw_pressure);
 			if (to_return != RPi_Success)
@@ -112,7 +125,7 @@ static Error_Returns get_filtered_readings()
 				log_string_plus("altitude_package: get_filtered_readings failed: ", to_return);
 				break;
 			}
-			update_estimate(raw_pressure, &kalman_filter_data[bme280_offset]);
+			update_estimate(raw_pressure, &kalman_filter_data[bme280_id]);
 		}
 
 	} while(0);
@@ -121,9 +134,9 @@ static Error_Returns get_filtered_readings()
 
 static double convert_pressure_to_altitude(double base_pressure, double current_pressure)
 {
-	//This equation is the barometric formula from the Bosch BMP180 datasheet
-	//returns the difference between the base pressure and the current pressure
-	//in meters
+	//This equation is the barometric formula from the Bosch BMP180 datasheet.
+	//This function returns the difference between the base pressure and the current pressure
+	//in meters.
 	return MAGIC_MULTIPLIER * (1-pow((current_pressure/base_pressure), MAGIC_EXPONENT));
 
 }
@@ -182,7 +195,7 @@ Error_Returns altitude_initialize()
 	do
 	{
 		//Initialize each BME 280
-		for(BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
+		for(uint32_t bme280_id = 0; bme280_id < BME280_NUMBER_SUPPORTED_DEVICES; bme280_id++)
 		{
 			to_return = bme280_init(bme280_id, bme280_kalman_filter_mode);
 			if (to_return != RPi_Success)
@@ -192,6 +205,11 @@ Error_Returns altitude_initialize()
 			}
 		}
 		
+		if (to_return != RPi_Success)
+		{
+			break;
+		}
+
 		//to_return = mpu6050_init();
 		if (to_return != RPi_Success)
 		{
@@ -220,7 +238,7 @@ Error_Returns altitude_reset()
 	log_string("Resetting base pressure");
 	do
 	{
-		//Turn of the tick timer, accessing the I2C bus from
+		//Turn off the tick timer, accessing the I2C bus from
 		//two different places (reset_base_pressure and altitude_tick_handler) causes
 		//hangs.
 		arm_timer_disable();
@@ -260,15 +278,16 @@ Error_Returns altitude_get_delta(double *delta_meters_ptr)
 			break;
 		}
 
-		for (BME280_id bme280_id = bme280_one; bme280_id <= bme280_two; bme280_id++)
+		for (uint32_t bme280_id = 0; bme280_id < BME280_NUMBER_SUPPORTED_DEVICES; bme280_id++)
 		{
-			int32_t bme280_offset = bme280_get_offset_from_id(bme280_id);
 			double altitude;
-			altitude = convert_pressure_to_altitude(base_pressure[bme280_offset],
-					kalman_filter_data[bme280_offset].estimate);
+
+			altitude = convert_pressure_to_altitude(base_pressure[bme280_id],
+					kalman_filter_data[bme280_id].estimate);
 			update_estimate(altitude, &current_altitude);
-			reset_kalman_filter_pressure_data(bme280_offset);
+			reset_kalman_filter_pressure_data(bme280_id);
 		}
+
 		*delta_meters_ptr= current_altitude.estimate;
 	} while(0);
 	
