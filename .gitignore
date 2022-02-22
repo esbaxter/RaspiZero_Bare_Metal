@@ -61,3 +61,4 @@ drone_controller/src/drone_controller.list
 .settings/org.eclipse.cdt.core.prefs
 .settings/org.eclipse.embedcdt.managedbuild.cross.arm.core.prefs
 doc/~$sourceUtilization.docx
+*.backup
