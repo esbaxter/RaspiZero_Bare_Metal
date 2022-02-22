@@ -77,7 +77,7 @@ setup_stacks: mov r0,#0xD2
 
 	;@ do a branch link in case our "main" returns 
 	;@ we will fall through to the hang loop
-launch: bl drone_control 
+launch: bl test_control
 	
 hang: b hang
 

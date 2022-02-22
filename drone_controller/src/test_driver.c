@@ -41,7 +41,7 @@ is definitely a work in progress...
 
 int __errno = 0;
 
-int drone_control()
+int test_control()
 {
     Error_Returns status = RPi_Success;
 	
