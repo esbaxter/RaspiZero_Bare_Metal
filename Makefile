@@ -11,21 +11,23 @@ LIB_CTRL = control\src
 LIB_SENSORS = sensors\src
 LIB_UTILS = utilities\src
 LIBRARIES := $(LIB_BSP) $(LIB_CTRL) $(LIB_SENSORS) $(LIB_UTILS)
-DRONE = drone_controller\src
+TEST = test_controller\src
 
 LOCALDIRS = lib
 
-.PHONY: all $(DRONE) $(LIBRARIES)
+.PHONY: all $(TEST) $(LIBRARIES)
 	
-all: $(DRONE)
+all: $(TEST)
 
-$(DRONE) $(LIBRARIES):
+$(TEST) $(LIBRARIES):
 	$(MAKE) --directory=$@ $(TARGET)
 	
-$(DRONE): $(LIBRARIES)
+$(TEST): $(LIBRARIES)
 
 dirs:
 	$(MKDIRAPP) -p $(LOCALDIRS)
 	
 clean:
 	$(shell rm -rf $(LOCALDIRS))
+	
+CleanUp:
