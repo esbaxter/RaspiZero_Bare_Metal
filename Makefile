@@ -29,5 +29,6 @@ dirs:
 	
 clean:
 	$(shell rm -rf $(LOCALDIRS))
-	
+
+#Fake target to make my Eclipse workspace build cleanly, not really useful	
 CleanUp:
